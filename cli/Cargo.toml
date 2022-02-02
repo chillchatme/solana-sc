@@ -1,0 +1,16 @@
+[package]
+name = "chill-cli"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+anyhow = "1.0.53"
+clap = "2.33.0"
+colored = "2.0.0"
+dirs = "4.0.0"
+solana-clap-utils = "1.9.5"
+solana-client = "1.9.5"
+solana-sdk = "1.9.5"
+spl-associated-token-account = {version = "1.0.3", features = ["no-entrypoint"]}
+spl-token = {version = "3.2.0", features = ["no-entrypoint"]}
+thiserror = "1.0.30"
