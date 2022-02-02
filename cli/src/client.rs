@@ -1,10 +1,11 @@
 use std::convert::TryInto;
 
-use crate::error::Result;
+use crate::error::{CliError, Result};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
     instruction::Instruction,
+    native_token::lamports_to_sol,
     program_pack::Pack,
     pubkey::Pubkey,
     signature::{Keypair, Signature},
@@ -30,26 +31,34 @@ impl Client {
     }
 
     pub fn airdrop(&self, address: Pubkey, lamports: u64) -> Result<()> {
-        println!("address {}, lamports {}", address, lamports);
         let signature = self.client.request_airdrop(&address, lamports)?;
-        loop {
-            let confirmed = self
-                .client
-                .confirm_transaction_with_commitment(&signature, CommitmentConfig::confirmed())?;
-            if confirmed.value {
-                break;
-            }
+        let initial_balance = self.client.get_balance(&address)?;
+        let blockhash = self.client.get_latest_blockhash()?;
+        self.client.confirm_transaction_with_spinner(
+            &signature,
+            &blockhash,
+            CommitmentConfig::confirmed(),
+        )?;
+
+        let new_balance = self.client.get_balance(&address)?;
+        if initial_balance >= new_balance {
+            return Err(CliError::CannotAirdrop(lamports_to_sol(lamports)).into());
         }
 
         Ok(())
     }
 
-    pub fn is_token_exists(&self, owner: Pubkey, mint: Pubkey) -> bool {
-        let token_pubkey = get_associated_token_address(&owner, &mint);
-        match self.client.get_account_data(&token_pubkey) {
-            Ok(ref data) => Account::unpack(data).is_ok(),
-            Err(_) => false,
-        }
+    pub fn token_account(&self, address: Pubkey) -> Result<Account> {
+        let data = self.client.get_account_data(&address)?;
+        Ok(Account::unpack(&data)?)
+    }
+
+    pub fn mint_account(&self, address: Pubkey) -> Result<Mint> {
+        let data = self
+            .client
+            .get_account_data(&address)
+            .map_err(|_| CliError::MintNotFound(address))?;
+        Ok(Mint::unpack(&data)?)
     }
 
     fn run_transaction(
@@ -93,10 +102,14 @@ impl Client {
         Ok(mint.pubkey())
     }
 
-    pub fn create_token(&self, owner: &dyn Signer, mint: Pubkey) -> Result<Pubkey> {
+    pub fn get_or_create_token(&self, owner: &dyn Signer, mint: Pubkey) -> Result<Pubkey> {
+        let token_pubkey = get_associated_token_address(&owner.pubkey(), &mint);
+        if self.token_account(token_pubkey).is_ok() {
+            return Ok(token_pubkey);
+        }
+
         let ix = create_associated_token_account(&owner.pubkey(), &owner.pubkey(), &mint);
         self.run_transaction(&[ix], owner.pubkey(), &[owner])?;
-        let token_pubkey = get_associated_token_address(&owner.pubkey(), &mint);
         Ok(token_pubkey)
     }
 

@@ -4,7 +4,10 @@ use solana_client::{
     rpc_request::{RpcError, RpcResponseErrorData},
     rpc_response::RpcSimulateTransactionResult,
 };
-use solana_sdk::{program_error::ProgramError, pubkey::ParsePubkeyError};
+use solana_sdk::{
+    program_error::ProgramError,
+    pubkey::{ParsePubkeyError, Pubkey},
+};
 use std::fmt::Display;
 use thiserror::Error;
 
@@ -22,8 +25,17 @@ pub enum CliError {
     #[error("Cannot write data to the file '{0}'")]
     CannotWriteToFile(String),
 
-    #[error("Mint and token accounts are already initialized")]
-    AlreadyInitialized,
+    #[error("Mint '{0}' not found. Create a new mint or pass the correct one with --mint-address argument")]
+    MintNotFound(Pubkey),
+
+    #[error("Mint {0} has another owner")]
+    OwnerNotMatch(Pubkey),
+
+    #[error("Owner account not found")]
+    OwnerNotFound,
+
+    #[error("Cannot airdrop {0} SOL")]
+    CannotAirdrop(f64),
 }
 
 impl std::error::Error for AppError {}
