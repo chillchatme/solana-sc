@@ -66,7 +66,7 @@ impl<'a> Cli<'a> {
             .value_name(account_address)
             .validator(is_valid_signer)
             .help(concat!(
-                "The account address of the owner. One of:\n",
+                "The owner account address. One of:\n",
                 "   * a base58-encoded public key\n",
                 "   * a path to a keypair file\n",
                 "   * a hyphen; signals a JSON-encoded keypair on stdin\n",
@@ -108,13 +108,13 @@ impl<'a> Cli<'a> {
             .takes_value(true)
             .value_name("DECIMALS")
             .default_value("9")
-            .help("Decimals of the new mint");
+            .help("Number of base 10 digits to the right of the decimal place");
 
         let mainnet = Arg::with_name(MAINNET)
             .long(MAINNET)
             .short("m")
             .takes_value(false)
-            .help("Run command in Mainnet");
+            .help("Runs the command in the Mainnet");
 
         let mint_command = SubCommand::with_name(COMMAND_MINT)
             .args(&[
@@ -125,11 +125,13 @@ impl<'a> Cli<'a> {
                 owner.clone(),
                 save_path,
             ])
-            .about("Create a mint and token account if they don't exist, and mint <AMOUNT> tokens");
+            .about(
+                "Creates mint and token accounts, if they don't exist, and mint a number of tokens",
+            );
 
         let balance_command = SubCommand::with_name(COMMAND_BALANCE)
             .args(&[mainnet, mint, owner])
-            .about("Print the balance of the token account");
+            .about("Prints the balance of the token account");
 
         App::new(crate_name!())
             .about(crate_description!())

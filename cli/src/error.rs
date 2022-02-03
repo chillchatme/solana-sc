@@ -25,16 +25,16 @@ pub enum CliError {
     #[error("Cannot write data to the file '{0}'")]
     CannotWriteToFile(String),
 
-    #[error("Mint '{0}' not found. Create a new mint or pass the correct one with --mint-address argument")]
+    #[error("Mint '{0}' not found. Please specify the correct mint address with '--mint-address' argument")]
     MintNotFound(Pubkey),
 
-    #[error("Specify mint address with --mint-address argument")]
+    #[error("Please specify a mint address with '--mint-address' argument")]
     MintNotSpecified,
 
     #[error("Mint '{0}' has another owner")]
     OwnerNotMatch(Pubkey),
 
-    #[error("Owner account not found")]
+    #[error("Owner account not found. Please specify the path to existing keypair with '--owner' argument")]
     OwnerNotFound,
 
     #[error("Cannot airdrop {0} SOL")]
