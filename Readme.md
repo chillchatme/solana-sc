@@ -26,6 +26,22 @@ can type:
 
 You can mint tokens with this command as many times as you want.
 
+The `mint` command creates a file named `mint.pubkey` in the same
+directory from which the command was run. This file will contain the
+public key of your mint account. If you delete the `mint.pubkey` file,
+rename it, move it to another directory, the next time you run the
+`./chill-cli mint` command, it will generate a new mint and save it
+again. To prevent this behavior, you can explicitly specify the path to
+the file or the public key in the base58 encoding with the argument
+`--mint-address`.
+
+For example:
+
+``` bash
+./chill-cli mint 1000 --mint-address ./mint.pubkey
+./chill-cli mint 1000 --mint-address CSqhdWtH9Zk5GEEdHFHQHFic8RdTxfMkEoCPevBK1PTL
+```
+
 To check your balance, type:
 
 ``` bash
@@ -44,7 +60,7 @@ first top up your Solana wallet balance.
 ./chill-cli mint 123.456 --mainnet --owner <PATH>
 ```
 
-For more info, run:
+For more information, run:
 
 ``` bash
 ./chill-cli --help

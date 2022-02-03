@@ -145,7 +145,7 @@ impl App<'_> {
         Ok(mint)
     }
 
-    fn get_or_create_token(&self, owner: &dyn Signer, mint: Pubkey) -> Result<Pubkey> {
+    fn get_or_create_token_account(&self, owner: &dyn Signer, mint: Pubkey) -> Result<Pubkey> {
         if let Ok(token) = self.client.get_token_pubkey(owner.pubkey(), mint) {
             return Ok(token);
         }
@@ -175,7 +175,7 @@ impl App<'_> {
 
         let decimals = self.cli.decimals();
         let mint = self.get_or_create_mint(owner.as_ref(), decimals)?;
-        let token = self.get_or_create_token(owner.as_ref(), mint)?;
+        let token = self.get_or_create_token_account(owner.as_ref(), mint)?;
 
         let ui_amount = self.cli.ui_amount();
         let amount = spl_token::ui_amount_to_amount(ui_amount, decimals);
