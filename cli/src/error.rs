@@ -19,7 +19,7 @@ pub enum AppError {
 
 #[derive(Error, Debug)]
 pub enum CliError {
-    #[error("Cannot parse pubkey from file '{0}'")]
+    #[error("Cannot parse pubkey from the file '{0}'")]
     CannotParseFile(String),
 
     #[error("Cannot write data to the file '{0}'")]
@@ -28,7 +28,10 @@ pub enum CliError {
     #[error("Mint '{0}' not found. Create a new mint or pass the correct one with --mint-address argument")]
     MintNotFound(Pubkey),
 
-    #[error("Mint {0} has another owner")]
+    #[error("Specify mint address with --mint-address argument")]
+    MintNotSpecified,
+
+    #[error("Mint '{0}' has another owner")]
     OwnerNotMatch(Pubkey),
 
     #[error("Owner account not found")]
@@ -36,6 +39,9 @@ pub enum CliError {
 
     #[error("Cannot airdrop {0} SOL")]
     CannotAirdrop(f64),
+
+    #[error("Token is not initialized for owner '{0}' and mint '{1}'")]
+    TokenNotInitialized(Pubkey, Pubkey),
 }
 
 impl std::error::Error for AppError {}

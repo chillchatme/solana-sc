@@ -1,5 +1,3 @@
-use std::convert::TryInto;
-
 use crate::error::{CliError, Result};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
@@ -19,6 +17,7 @@ use spl_token::{
     instruction::{initialize_mint, mint_to},
     state::{Account, Mint},
 };
+use std::convert::TryInto;
 
 pub struct Client {
     client: RpcClient,
@@ -28,6 +27,10 @@ impl Client {
     pub fn init(url: &str) -> Self {
         let client = RpcClient::new_with_commitment(url.to_owned(), CommitmentConfig::confirmed());
         Self { client }
+    }
+
+    pub fn balance(&self, owner: Pubkey) -> Result<u64> {
+        self.client.get_balance(&owner).map_err(|e| e.into())
     }
 
     pub fn airdrop(&self, address: Pubkey, lamports: u64) -> Result<()> {
@@ -48,8 +51,13 @@ impl Client {
         Ok(())
     }
 
-    pub fn token_account(&self, address: Pubkey) -> Result<Account> {
-        let data = self.client.get_account_data(&address)?;
+    pub fn token_account(&self, owner: Pubkey, mint: Pubkey) -> Result<Account> {
+        let token_pubkey = get_associated_token_address(&owner, &mint);
+        let data = self
+            .client
+            .get_account_data(&token_pubkey)
+            .map_err(|_| CliError::TokenNotInitialized(owner, mint))?;
+
         Ok(Account::unpack(&data)?)
     }
 
@@ -102,12 +110,13 @@ impl Client {
         Ok(mint.pubkey())
     }
 
-    pub fn get_or_create_token(&self, owner: &dyn Signer, mint: Pubkey) -> Result<Pubkey> {
-        let token_pubkey = get_associated_token_address(&owner.pubkey(), &mint);
-        if self.token_account(token_pubkey).is_ok() {
-            return Ok(token_pubkey);
-        }
+    pub fn get_token_pubkey(&self, owner: Pubkey, mint: Pubkey) -> Result<Pubkey> {
+        self.token_account(owner, mint)?;
+        Ok(get_associated_token_address(&owner, &mint))
+    }
 
+    pub fn create_token_account(&self, owner: &dyn Signer, mint: Pubkey) -> Result<Pubkey> {
+        let token_pubkey = get_associated_token_address(&owner.pubkey(), &mint);
         let ix = create_associated_token_account(&owner.pubkey(), &owner.pubkey(), &mint);
         self.run_transaction(&[ix], owner.pubkey(), &[owner])?;
         Ok(token_pubkey)

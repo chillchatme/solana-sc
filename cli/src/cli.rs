@@ -1,13 +1,11 @@
-use std::{fs, str::FromStr};
-
+use crate::error::{CliError, Result};
 use clap::{
     crate_description, crate_name, crate_version, value_t_or_exit, App, AppSettings, Arg,
     ArgMatches, SubCommand,
 };
-use solana_clap_utils::{
-    input_parsers::pubkey_of, input_validators::is_valid_signer, keypair::signer_from_path,
-};
+use solana_clap_utils::{input_validators::is_valid_signer, keypair::signer_from_path};
 use solana_sdk::{pubkey::Pubkey, signer::Signer};
+use std::{fs, path::Path, str::FromStr};
 
 const DEFAULT_MINT_PATH: &str = "mint.pubkey";
 
@@ -30,7 +28,7 @@ pub struct Cli<'a> {
     matches: ArgMatches<'a>,
 }
 
-fn is_pubkey(string: String) -> Result<(), String> {
+fn is_pubkey(string: String) -> core::result::Result<(), String> {
     if Pubkey::from_str(&string).is_ok() {
         return Ok(());
     }
@@ -76,12 +74,6 @@ impl<'a> Cli<'a> {
                 "   * a hardware wallet keypair URL (i.e. usb://ledger)"
             ));
 
-        let mint_help = concat!(
-            "The mint account address. One of:\n",
-            "   * a base58-encoded public key\n",
-            "   * a path to a pubkey file"
-        );
-
         let mint = Arg::with_name(MINT)
             .long(MINT)
             .short("a")
@@ -89,17 +81,11 @@ impl<'a> Cli<'a> {
             .takes_value(true)
             .value_name(account_address)
             .validator(is_pubkey)
-            .help(mint_help);
-
-        let mint_balance = Arg::with_name(MINT)
-            .long(MINT)
-            .short("a")
-            .required(true)
-            .takes_value(true)
-            .value_name(account_address)
-            .validator(is_pubkey)
-            .default_value(DEFAULT_MINT_PATH)
-            .help(mint_help);
+            .help(concat!(
+                "The mint account address. One of:\n",
+                "   * a base58-encoded public key\n",
+                "   * a path to a pubkey file"
+            ));
 
         let save_path = Arg::with_name(SAVE_PATH)
             .long(SAVE_PATH)
@@ -122,13 +108,13 @@ impl<'a> Cli<'a> {
             .takes_value(true)
             .value_name("DECIMALS")
             .default_value("9")
-            .help("Decimals of new mint");
+            .help("Decimals of the new mint");
 
         let mainnet = Arg::with_name(MAINNET)
             .long(MAINNET)
             .short("m")
             .takes_value(false)
-            .help("Mint tokens to Mainnet");
+            .help("Run command in Mainnet");
 
         let mint_command = SubCommand::with_name(COMMAND_MINT)
             .args(&[
@@ -142,7 +128,7 @@ impl<'a> Cli<'a> {
             .about("Create a mint and token account if they don't exist, and mint <AMOUNT> tokens");
 
         let balance_command = SubCommand::with_name(COMMAND_BALANCE)
-            .args(&[mainnet, mint_balance, owner])
+            .args(&[mainnet, mint, owner])
             .about("Print the balance of the token account");
 
         App::new(crate_name!())
@@ -185,9 +171,9 @@ impl<'a> Cli<'a> {
         value_t_or_exit!(matches, DECIMALS, u8)
     }
 
-    pub fn save_path(&self) -> String {
+    pub fn save_path(&self) -> &str {
         let matches = self.get_matches().1;
-        matches.value_of(SAVE_PATH).unwrap().to_owned()
+        matches.value_of(SAVE_PATH).unwrap()
     }
 
     pub fn owner(&self) -> Option<Box<dyn Signer>> {
@@ -197,16 +183,31 @@ impl<'a> Cli<'a> {
             .and_then(|path| signer_from_path(matches, path, OWNER, &mut None).ok())
     }
 
-    pub fn mint(&self) -> Option<Pubkey> {
-        let matches = self.get_matches().1;
-        if let Some(pubkey) = pubkey_of(matches, MINT) {
-            return Some(pubkey);
+    fn parse_mint(&self, mint: &str) -> Result<Pubkey> {
+        let mint_pubkey;
+        if Path::new(mint).is_file() {
+            let pubkey_string = fs::read_to_string(mint)?;
+            mint_pubkey = Pubkey::from_str(pubkey_string.trim())?;
+        } else {
+            mint_pubkey = Pubkey::from_str(mint.trim())?;
         }
+        Ok(mint_pubkey)
+    }
 
-        let path = matches.value_of(MINT).unwrap_or(DEFAULT_MINT_PATH);
-        fs::read_to_string(path)
-            .ok()
-            .and_then(|pubkey| Pubkey::from_str(pubkey.trim()).ok())
+    pub fn mint_with_default(&self) -> Result<Pubkey> {
+        let matches = self.get_matches().1;
+        let mint = matches.value_of(MINT).unwrap_or(DEFAULT_MINT_PATH);
+        self.parse_mint(mint)
+    }
+
+    pub fn mint(&self) -> Result<Pubkey> {
+        let matches = self.get_matches().1;
+        match matches.value_of(MINT) {
+            Some(mint) => self.parse_mint(mint),
+            None => self
+                .parse_mint(DEFAULT_MINT_PATH)
+                .map_err(|_| CliError::MintNotSpecified.into()),
+        }
     }
 
     pub fn mainnet(&self) -> bool {
