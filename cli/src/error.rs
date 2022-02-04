@@ -22,8 +22,8 @@ pub enum CliError {
     #[error("Cannot airdrop {0} SOL")]
     CannotAirdrop(f64),
 
-    #[error("Cannot parse pubkey from the file '{0}'")]
-    CannotParseFile(String),
+    #[error("Cannot parse pubkey from the file '{0}' - {1}")]
+    CannotParseFile(String, String),
 
     #[error("Cannot write data to the file '{0}'")]
     CannotWriteToFile(String),

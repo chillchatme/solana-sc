@@ -44,7 +44,7 @@ impl App<'_> {
 
         if keypair_path.is_file() {
             let keypair = read_keypair_file(keypair_path)
-                .map_err(|_| CliError::CannotParseFile(keypair_filename))?;
+                .map_err(|e| CliError::CannotParseFile(keypair_filename, e.to_string()))?;
             Ok(Box::new(keypair))
         } else {
             Err(CliError::OwnerNotFound.into())
@@ -120,13 +120,17 @@ impl App<'_> {
     }
 
     fn get_mint(&self, owner: Pubkey) -> Result<Pubkey> {
-        let mint = self.cli.mint()?;
-        self.assert_mint_owner(mint, owner)?;
-        Ok(mint)
+        match self.cli.mint()? {
+            Some(mint) => {
+                self.assert_mint_owner(mint, owner)?;
+                Ok(mint)
+            }
+            None => Err(CliError::MintNotSpecified.into()),
+        }
     }
 
     fn get_or_create_mint(&self, owner: &dyn Signer, decimals: u8) -> Result<Pubkey> {
-        if let Ok(mint) = self.cli.mint_with_default() {
+        if let Some(mint) = self.cli.mint()? {
             self.assert_mint_owner(mint, owner.pubkey())?;
             return Ok(mint);
         }

@@ -38,8 +38,8 @@ fn is_mint_pubkey(string: String) -> core::result::Result<(), String> {
         return Ok(());
     }
 
-    if let Ok(pubkey) = fs::read_to_string(&string) {
-        match Pubkey::from_str(pubkey.trim()) {
+    if let Ok(pubkey_from_file) = fs::read_to_string(&string) {
+        match is_pubkey(pubkey_from_file.trim()) {
             Ok(_) => return Ok(()),
             Err(_) => {
                 return Err(format!(
@@ -217,33 +217,27 @@ impl<'a> Cli<'a> {
         }
     }
 
-    fn parse_mint(&self, mint: &str) -> Result<Pubkey> {
-        let mint_pubkey;
-        if Path::new(mint).is_file() {
-            let pubkey_string = fs::read_to_string(mint)?;
-            mint_pubkey = Pubkey::from_str(pubkey_string.trim())?;
-        } else {
-            mint_pubkey = Pubkey::from_str(mint.trim())?;
+    fn parse_mint(&self, mint: &str) -> Result<Option<Pubkey>> {
+        let mint = mint.trim();
+        if let Ok(pubkey) = Pubkey::from_str(mint) {
+            return Ok(Some(pubkey));
         }
-        Ok(mint_pubkey)
+
+        if Path::new(mint).is_file() {
+            let pubkey_from_file = fs::read_to_string(mint)?;
+            let pubkey = Pubkey::from_str(pubkey_from_file.trim())
+                .map_err(|e| CliError::CannotParseFile(mint.to_string(), e.to_string()))?;
+            return Ok(Some(pubkey));
+        }
+
+        Ok(None)
     }
 
-    pub fn mint_with_default(&self) -> Result<Pubkey> {
+    pub fn mint(&self) -> Result<Option<Pubkey>> {
         let matches = self.get_matches().1;
         let default_mint_path = self.default_mint_file();
         let mint = matches.value_of(MINT).unwrap_or(default_mint_path);
         self.parse_mint(mint)
-    }
-
-    pub fn mint(&self) -> Result<Pubkey> {
-        let matches = self.get_matches().1;
-        let default_mint_path = self.default_mint_file();
-        match matches.value_of(MINT) {
-            Some(mint) => self.parse_mint(mint),
-            None => self
-                .parse_mint(default_mint_path)
-                .map_err(|_| CliError::MintNotSpecified.into()),
-        }
     }
 
     pub fn mainnet(&self) -> bool {
