@@ -253,3 +253,124 @@ impl<'a> Cli<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use solana_sdk::signature::{read_keypair_file, Keypair};
+
+    const MINT_PATH: &str = "../localnet/mint.pubkey.localnet";
+    const OWNER_PATH: &str = "../localnet/owner.json";
+    const RECEIVER_PATH: &str = "../localnet/receiver.json";
+
+    fn get_cli<'a>(args: &[&'a str]) -> Cli<'a> {
+        let mut argv = vec![crate_name!()];
+        argv.extend(args);
+
+        let app = Cli::build_app();
+        let matches = app.get_matches_from(argv);
+        Cli { matches }
+    }
+
+    fn mint_pubkey() -> Pubkey {
+        let pubkey_str = fs::read_to_string(MINT_PATH).unwrap();
+        Pubkey::from_str(pubkey_str.trim()).unwrap()
+    }
+
+    fn owner() -> Keypair {
+        read_keypair_file(OWNER_PATH).unwrap()
+    }
+
+    fn receiver() -> Keypair {
+        read_keypair_file(RECEIVER_PATH).unwrap()
+    }
+
+    #[test]
+    fn mint() {
+        let amount = "1000";
+        let cli = get_cli(&[COMMAND_MINT, amount]);
+
+        assert!(!cli.mainnet());
+        assert!(cli.default_mint_file().contains("devnet"));
+        assert!(cli.mint().unwrap().is_none());
+        assert_eq!(cli.decimals(), 9);
+        assert_eq!(cli.owner(), None);
+        assert_eq!(cli.save_path(), cli.default_mint_file());
+        assert_eq!(cli.ui_amount().to_string(), amount);
+
+        let decimals = "0";
+        let all_args_string = format!(
+            "{0} {1} --{2} {3} --{4} {5} --{6} {7} --{8}",
+            COMMAND_MINT, amount, OWNER, OWNER_PATH, DECIMALS, decimals, MINT, MINT_PATH, MAINNET
+        );
+
+        let args = all_args_string.split(' ').collect::<Vec<&str>>();
+        let cli = get_cli(&args);
+
+        assert!(cli.default_mint_file().contains("mainnet"));
+        assert!(cli.mainnet());
+        assert_eq!(cli.decimals().to_string(), decimals);
+        assert_eq!(cli.mint().unwrap(), Some(mint_pubkey()));
+        assert_eq!(cli.owner().unwrap().pubkey(), owner().pubkey());
+        assert_eq!(cli.save_path(), cli.default_mint_file());
+        assert_eq!(cli.ui_amount().to_string(), amount);
+    }
+
+    #[test]
+    fn balance() {
+        let cli = get_cli(&[COMMAND_BALANCE]);
+
+        assert!(!cli.mainnet());
+        assert!(cli.mint().unwrap().is_none());
+        assert_eq!(cli.owner(), None);
+
+        let args_with_mint_as_pubkey =
+            format!("{0} --{1} {2}", COMMAND_BALANCE, MINT, mint_pubkey());
+
+        let args = args_with_mint_as_pubkey.split(' ').collect::<Vec<&str>>();
+        let cli = get_cli(&args);
+        assert_eq!(cli.mint().unwrap(), Some(mint_pubkey()));
+
+        let all_args_string = format!(
+            "{0} --{1} {2} --{3} {4} --{5}",
+            COMMAND_BALANCE, OWNER, OWNER_PATH, MINT, MINT_PATH, MAINNET
+        );
+
+        let args = all_args_string.split(' ').collect::<Vec<&str>>();
+        let cli = get_cli(&args);
+
+        assert!(cli.mainnet());
+        assert_eq!(cli.mint().unwrap(), Some(mint_pubkey()));
+        assert_eq!(cli.owner().unwrap().pubkey(), owner().pubkey());
+    }
+
+    #[test]
+    fn transfer() {
+        let amount = "1000";
+        let cli = get_cli(&[COMMAND_TRANSFER, RECEIVER_PATH, amount]);
+
+        assert!(!cli.mainnet());
+        assert!(cli.mint().unwrap().is_none());
+        assert_eq!(cli.owner(), None);
+        assert_eq!(cli.receiver(), receiver().pubkey());
+        assert_eq!(cli.ui_amount().to_string(), amount);
+
+        let receiver_pubkey = receiver().pubkey().to_string();
+        let cli = get_cli(&[COMMAND_TRANSFER, &receiver_pubkey, amount]);
+        assert_eq!(cli.receiver(), receiver().pubkey());
+
+        let all_args_string = format!(
+            "{0} {1} {2} --{3} {4} --{5} {6} --{7}",
+            COMMAND_TRANSFER, RECEIVER_PATH, amount, MINT, MINT_PATH, OWNER, OWNER_PATH, MAINNET
+        );
+
+        let args = all_args_string.split(' ').collect::<Vec<&str>>();
+        let cli = get_cli(&args);
+
+        assert!(cli.mainnet());
+        assert_eq!(cli.mint().unwrap(), Some(mint_pubkey()));
+        assert_eq!(cli.owner().unwrap().pubkey(), owner().pubkey());
+        assert_eq!(cli.receiver(), receiver().pubkey());
+        assert_eq!(cli.ui_amount().to_string(), amount);
+    }
+}
