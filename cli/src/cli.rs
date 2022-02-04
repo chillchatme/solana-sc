@@ -3,33 +3,38 @@ use clap::{
     crate_description, crate_name, crate_version, value_t_or_exit, App, AppSettings, Arg,
     ArgMatches, SubCommand,
 };
-use solana_clap_utils::{input_validators::is_valid_signer, keypair::signer_from_path};
+use solana_clap_utils::{
+    input_parsers::pubkey_of,
+    input_validators::{is_pubkey, is_valid_pubkey, is_valid_signer},
+    keypair::signer_from_path,
+};
 use solana_sdk::{pubkey::Pubkey, signer::Signer};
 use std::{fs, path::Path, str::FromStr};
 
-const DEFAULT_MINT_PATH: &str = "mint.pubkey";
-
-const COMMAND_MINT: &str = "mint";
 const COMMAND_BALANCE: &str = "balance";
+const COMMAND_MINT: &str = "mint";
+const COMMAND_TRANSFER: &str = "transfer";
 
 const AMOUNT: &str = "amount";
 const DECIMALS: &str = "decimals";
 const MAINNET: &str = "mainnet";
 const MINT: &str = "mint-address";
 const OWNER: &str = "owner";
+const RECEIVER: &str = "receiver";
 const SAVE_PATH: &str = "save-path";
 
 pub enum CliCommand {
     Mint,
     Balance,
+    Transfer,
 }
 
 pub struct Cli<'a> {
     matches: ArgMatches<'a>,
 }
 
-fn is_pubkey(string: String) -> core::result::Result<(), String> {
-    if Pubkey::from_str(&string).is_ok() {
+fn is_mint_pubkey(string: String) -> core::result::Result<(), String> {
+    if is_pubkey(&string).is_ok() {
         return Ok(());
     }
 
@@ -38,15 +43,11 @@ fn is_pubkey(string: String) -> core::result::Result<(), String> {
             Ok(_) => return Ok(()),
             Err(_) => {
                 return Err(format!(
-                    "Cannot parse file '{0}'. File must contain a base58 encoded public key",
+                    "Cannot parse file '{0}'. File must contain a base58-encoded public key",
                     string
                 ))
             }
         }
-    }
-
-    if string == DEFAULT_MINT_PATH {
-        return Err("Specify mint address if exists or create a new one".to_owned());
     }
 
     Err(format!(
@@ -58,6 +59,15 @@ fn is_pubkey(string: String) -> core::result::Result<(), String> {
 impl<'a> Cli<'a> {
     fn build_app<'b, 'c>() -> App<'b, 'c> {
         let account_address = "ACCOUNT_ADDRESS";
+        let account_address_help = concat!(
+            "Account address is one of:\n",
+            "   * a base58-encoded public key\n",
+            "   * a path to a keypair file\n",
+            "   * a hyphen; signals a JSON-encoded keypair on stdin\n",
+            "   * the 'ASK' keyword; to recover a keypair via its seed phrase\n",
+            "   * a hardware wallet keypair URL (i.e. usb://ledger)"
+        );
+
         let owner = Arg::with_name(OWNER)
             .long(OWNER)
             .short("o")
@@ -65,14 +75,7 @@ impl<'a> Cli<'a> {
             .takes_value(true)
             .value_name(account_address)
             .validator(is_valid_signer)
-            .help(concat!(
-                "The owner account address. One of:\n",
-                "   * a base58-encoded public key\n",
-                "   * a path to a keypair file\n",
-                "   * a hyphen; signals a JSON-encoded keypair on stdin\n",
-                "   * the 'ASK' keyword; to recover a keypair via its seed phrase\n",
-                "   * a hardware wallet keypair URL (i.e. usb://ledger)"
-            ));
+            .help(account_address_help);
 
         let mint = Arg::with_name(MINT)
             .long(MINT)
@@ -80,7 +83,7 @@ impl<'a> Cli<'a> {
             .required(false)
             .takes_value(true)
             .value_name(account_address)
-            .validator(is_pubkey)
+            .validator(is_mint_pubkey)
             .help(concat!(
                 "The mint account address. One of:\n",
                 "   * a base58-encoded public key\n",
@@ -93,14 +96,15 @@ impl<'a> Cli<'a> {
             .required(false)
             .takes_value(true)
             .value_name("PATH")
-            .default_value(DEFAULT_MINT_PATH)
             .help("The path to the file where to put mint pubkey");
 
         let amount = Arg::with_name(AMOUNT)
             .required(true)
             .takes_value(true)
-            .value_name("AMOUNT")
-            .help("Amount of tokens to mint");
+            .value_name("AMOUNT");
+
+        let amount_mint = amount.clone().help("Amount of tokens to mint");
+        let amount_transfer = amount.help("Amount of tokens to transfer");
 
         let decimals = Arg::with_name(DECIMALS)
             .long(DECIMALS)
@@ -116,9 +120,16 @@ impl<'a> Cli<'a> {
             .takes_value(false)
             .help("Runs the command in the Mainnet");
 
+        let receiver = Arg::with_name(RECEIVER)
+            .required(true)
+            .takes_value(true)
+            .value_name("RECEIVER_ADDRESS")
+            .validator(is_valid_pubkey)
+            .help(account_address_help);
+
         let mint_command = SubCommand::with_name(COMMAND_MINT)
             .args(&[
-                amount,
+                amount_mint,
                 decimals,
                 mainnet.clone(),
                 mint.clone(),
@@ -130,13 +141,17 @@ impl<'a> Cli<'a> {
             );
 
         let balance_command = SubCommand::with_name(COMMAND_BALANCE)
-            .args(&[mainnet, mint, owner])
+            .args(&[mainnet.clone(), mint.clone(), owner.clone()])
             .about("Prints the balance of the token account");
+
+        let transfer_command = SubCommand::with_name(COMMAND_TRANSFER)
+            .args(&[mainnet, mint, owner, receiver, amount_transfer])
+            .about("Transfers a number of tokens to the destination address");
 
         App::new(crate_name!())
             .about(crate_description!())
             .version(crate_version!())
-            .subcommands(vec![mint_command, balance_command])
+            .subcommands(vec![mint_command, balance_command, transfer_command])
             .setting(AppSettings::SubcommandRequiredElseHelp)
     }
 
@@ -151,6 +166,7 @@ impl<'a> Cli<'a> {
         match self.matches.subcommand() {
             (COMMAND_MINT, Some(matcher)) => (COMMAND_MINT, matcher),
             (COMMAND_BALANCE, Some(matcher)) => (COMMAND_BALANCE, matcher),
+            (COMMAND_TRANSFER, Some(matcher)) => (COMMAND_TRANSFER, matcher),
             _ => unimplemented!(),
         }
     }
@@ -159,6 +175,7 @@ impl<'a> Cli<'a> {
         match self.get_matches().0 {
             COMMAND_MINT => CliCommand::Mint,
             COMMAND_BALANCE => CliCommand::Balance,
+            COMMAND_TRANSFER => CliCommand::Transfer,
             _ => unimplemented!(),
         }
     }
@@ -175,7 +192,14 @@ impl<'a> Cli<'a> {
 
     pub fn save_path(&self) -> &str {
         let matches = self.get_matches().1;
-        matches.value_of(SAVE_PATH).unwrap()
+        matches
+            .value_of(SAVE_PATH)
+            .unwrap_or_else(|| self.default_mint_file())
+    }
+
+    pub fn receiver(&self) -> Pubkey {
+        let matches = self.get_matches().1;
+        pubkey_of(matches, RECEIVER).unwrap()
     }
 
     pub fn owner(&self) -> Option<Box<dyn Signer>> {
@@ -183,6 +207,14 @@ impl<'a> Cli<'a> {
         matches
             .value_of(OWNER)
             .and_then(|path| signer_from_path(matches, path, OWNER, &mut None).ok())
+    }
+
+    fn default_mint_file(&self) -> &str {
+        if self.mainnet() {
+            "mint.mainnet.pubkey"
+        } else {
+            "mint.devnet.pubkey"
+        }
     }
 
     fn parse_mint(&self, mint: &str) -> Result<Pubkey> {
@@ -198,16 +230,18 @@ impl<'a> Cli<'a> {
 
     pub fn mint_with_default(&self) -> Result<Pubkey> {
         let matches = self.get_matches().1;
-        let mint = matches.value_of(MINT).unwrap_or(DEFAULT_MINT_PATH);
+        let default_mint_path = self.default_mint_file();
+        let mint = matches.value_of(MINT).unwrap_or(default_mint_path);
         self.parse_mint(mint)
     }
 
     pub fn mint(&self) -> Result<Pubkey> {
         let matches = self.get_matches().1;
+        let default_mint_path = self.default_mint_file();
         match matches.value_of(MINT) {
             Some(mint) => self.parse_mint(mint),
             None => self
-                .parse_mint(DEFAULT_MINT_PATH)
+                .parse_mint(default_mint_path)
                 .map_err(|_| CliError::MintNotSpecified.into()),
         }
     }

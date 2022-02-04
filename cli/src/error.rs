@@ -19,11 +19,17 @@ pub enum AppError {
 
 #[derive(Error, Debug)]
 pub enum CliError {
+    #[error("Cannot airdrop {0} SOL")]
+    CannotAirdrop(f64),
+
     #[error("Cannot parse pubkey from the file '{0}'")]
     CannotParseFile(String),
 
     #[error("Cannot write data to the file '{0}'")]
     CannotWriteToFile(String),
+
+    #[error("Insufficient tokens amount. Expected at least {0} tokens, found {1} tokens")]
+    InsufficientTokens(f64, f64),
 
     #[error("Mint '{0}' not found. Please specify the correct mint address with '--mint-address' argument")]
     MintNotFound(Pubkey),
@@ -31,14 +37,11 @@ pub enum CliError {
     #[error("Please specify a mint address with '--mint-address' argument")]
     MintNotSpecified,
 
-    #[error("Mint '{0}' has another owner")]
-    OwnerNotMatch(Pubkey),
-
     #[error("Owner account not found. Please specify the path to existing keypair with '--owner' argument")]
     OwnerNotFound,
 
-    #[error("Cannot airdrop {0} SOL")]
-    CannotAirdrop(f64),
+    #[error("Mint '{0}' has another owner")]
+    OwnerNotMatch(Pubkey),
 
     #[error("Token is not initialized for owner '{0}' and mint '{1}'")]
     TokenNotInitialized(Pubkey, Pubkey),
