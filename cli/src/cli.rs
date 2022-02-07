@@ -202,11 +202,24 @@ impl<'a> Cli<'a> {
         pubkey_of(matches, RECEIVER).unwrap()
     }
 
-    pub fn owner(&self) -> Option<Box<dyn Signer>> {
+    pub fn owner_pubkey(&self) -> Option<Pubkey> {
         let matches = self.get_matches().1;
         matches
             .value_of(OWNER)
-            .and_then(|path| signer_from_path(matches, path, OWNER, &mut None).ok())
+            .map(|_| pubkey_of(matches, OWNER).unwrap())
+    }
+
+    pub fn owner(&self) -> Result<Option<Box<dyn Signer>>> {
+        let matches = self.get_matches().1;
+        if matches.is_present(OWNER) {
+            let owner = matches.value_of(OWNER).unwrap();
+            let signer = signer_from_path(matches, owner, OWNER, &mut None)
+                .map_err(|e| CliError::CannotGetOwner(e.to_string()))?;
+
+            Ok(Some(signer))
+        } else {
+            Ok(None)
+        }
     }
 
     fn default_mint_file(&self) -> &str {

@@ -11,7 +11,11 @@ use solana_sdk::{
     signature::{read_keypair_file, write_keypair_file, Keypair},
     signer::Signer,
 };
-use std::{fs, path::PathBuf, process::exit};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::exit,
+};
 
 pub struct App<'cli> {
     cli: Cli<'cli>,
@@ -80,15 +84,22 @@ impl App<'_> {
         Ok(())
     }
 
+    fn get_owner_pubkey(&self) -> Result<Pubkey> {
+        match self.cli.owner_pubkey() {
+            Some(owner) => Ok(owner),
+            None => Ok(self.get_default_keypair()?.pubkey()),
+        }
+    }
+
     fn get_owner(&self) -> Result<Box<dyn Signer>> {
-        match self.cli.owner() {
+        match self.cli.owner()? {
             Some(owner) => Ok(owner),
             None => self.get_default_keypair(),
         }
     }
 
     fn get_or_create_owner(&self) -> Result<Box<dyn Signer>> {
-        match self.cli.owner() {
+        match self.cli.owner()? {
             Some(owner) => Ok(owner),
             None => self.get_or_create_default_keypair(),
         }
@@ -96,17 +107,14 @@ impl App<'_> {
 
     fn save_mint(&self, mint: Pubkey) -> Result<()> {
         let save_path = self.cli.save_path();
+
         std::fs::write(save_path, mint.to_string())
             .map_err(|_| CliError::CannotWriteToFile(save_path.to_owned()))?;
 
-        let path = std::path::Path::new(save_path);
+        let path = Path::new(save_path);
         let full_path = fs::canonicalize(path).unwrap();
-
-        println!(
-            "{0} \"{1}\"",
-            "Mint file:".cyan(),
-            full_path.as_os_str().to_str().unwrap()
-        );
+        let full_path_str = full_path.as_os_str().to_str().unwrap();
+        println!("{0} \"{1}\"", "Mint file:".cyan(), full_path_str);
         Ok(())
     }
 
@@ -133,6 +141,14 @@ impl App<'_> {
         if let Some(mint) = self.cli.mint()? {
             self.assert_mint_owner(mint, owner.pubkey())?;
             return Ok(mint);
+        }
+
+        let save_path = self.cli.save_path();
+        let path = Path::new(save_path);
+        if path.exists() {
+            let full_path = fs::canonicalize(path).unwrap();
+            let full_path_str = full_path.as_os_str().to_str().unwrap();
+            return Err(CliError::MintFileExists(full_path_str.to_owned()).into());
         }
 
         let mint = self.client.create_mint(owner, decimals)?;
@@ -177,9 +193,12 @@ impl App<'_> {
     }
 
     fn process_print_balance(&self) -> Result<()> {
-        let owner = self.get_owner()?;
-        let mint = self.get_mint(owner.pubkey())?;
-        self.print_balance(owner.pubkey(), mint)
+        let owner = self.get_owner_pubkey()?;
+        let mint = self.cli.mint()?;
+        match mint {
+            Some(mint) => self.print_balance(owner, mint),
+            None => Err(CliError::MintNotSpecified.into()),
+        }
     }
 
     fn process_transfer(&self) -> Result<()> {
@@ -187,6 +206,10 @@ impl App<'_> {
         let mint = self.get_mint(owner.pubkey())?;
         let ui_amount = self.cli.ui_amount();
         let receiver = self.cli.receiver();
+
+        if ui_amount == 0.0 {
+            return Err(CliError::TransferZeroTokens.into());
+        }
 
         let receiver_token_account = match self.client.find_token_account(receiver, mint)? {
             Some(token_account) => token_account,

@@ -28,8 +28,14 @@ pub enum CliError {
     #[error("Cannot write data to the file '{0}'")]
     CannotWriteToFile(String),
 
+    #[error("Cannot get owner: {0}")]
+    CannotGetOwner(String),
+
     #[error("Insufficient tokens amount. Expected at least {0} tokens, found {1} tokens")]
     InsufficientTokens(f64, f64),
+
+    #[error("Cannot overwrite existing file \"{0}\"")]
+    MintFileExists(String),
 
     #[error("Mint '{0}' not found. Please specify the correct mint address with '--mint-address' argument")]
     MintNotFound(Pubkey),
@@ -45,6 +51,9 @@ pub enum CliError {
 
     #[error("Token is not initialized for owner '{0}' and mint '{1}'")]
     TokenNotInitialized(Pubkey, Pubkey),
+
+    #[error("Cannot transfer zero tokens")]
+    TransferZeroTokens,
 }
 
 impl std::error::Error for AppError {}
