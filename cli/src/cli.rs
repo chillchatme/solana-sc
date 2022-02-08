@@ -307,7 +307,7 @@ mod tests {
         assert!(cli.default_mint_file().contains("devnet"));
         assert!(cli.mint().unwrap().is_none());
         assert_eq!(cli.decimals(), 9);
-        assert_eq!(cli.owner(), None);
+        assert_eq!(cli.owner().unwrap(), None);
         assert_eq!(cli.save_path(), cli.default_mint_file());
         assert_eq!(cli.ui_amount().to_string(), amount);
 
@@ -324,7 +324,7 @@ mod tests {
         assert!(cli.mainnet());
         assert_eq!(cli.decimals().to_string(), decimals);
         assert_eq!(cli.mint().unwrap(), Some(mint_pubkey()));
-        assert_eq!(cli.owner().unwrap().pubkey(), owner().pubkey());
+        assert_eq!(cli.owner().unwrap().unwrap().pubkey(), owner().pubkey());
         assert_eq!(cli.save_path(), cli.default_mint_file());
         assert_eq!(cli.ui_amount().to_string(), amount);
     }
@@ -335,7 +335,7 @@ mod tests {
 
         assert!(!cli.mainnet());
         assert!(cli.mint().unwrap().is_none());
-        assert_eq!(cli.owner(), None);
+        assert_eq!(cli.owner().unwrap(), None);
 
         let args_with_mint_as_pubkey =
             format!("{0} --{1} {2}", COMMAND_BALANCE, MINT, mint_pubkey());
@@ -354,7 +354,7 @@ mod tests {
 
         assert!(cli.mainnet());
         assert_eq!(cli.mint().unwrap(), Some(mint_pubkey()));
-        assert_eq!(cli.owner().unwrap().pubkey(), owner().pubkey());
+        assert_eq!(cli.owner().unwrap().unwrap().pubkey(), owner().pubkey());
     }
 
     #[test]
@@ -364,7 +364,7 @@ mod tests {
 
         assert!(!cli.mainnet());
         assert!(cli.mint().unwrap().is_none());
-        assert_eq!(cli.owner(), None);
+        assert_eq!(cli.owner().unwrap(), None);
         assert_eq!(cli.receiver(), receiver().pubkey());
         assert_eq!(cli.ui_amount().to_string(), amount);
 
@@ -382,7 +382,7 @@ mod tests {
 
         assert!(cli.mainnet());
         assert_eq!(cli.mint().unwrap(), Some(mint_pubkey()));
-        assert_eq!(cli.owner().unwrap().pubkey(), owner().pubkey());
+        assert_eq!(cli.owner().unwrap().unwrap().pubkey(), owner().pubkey());
         assert_eq!(cli.receiver(), receiver().pubkey());
         assert_eq!(cli.ui_amount().to_string(), amount);
     }
