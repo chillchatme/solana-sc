@@ -1,4 +1,9 @@
 use crate::error::{CliError, Result};
+use chill::{
+    self, instruction,
+    state::{Config, Fees, Recipient},
+    utils::pda,
+};
 use solana_client::{rpc_client::RpcClient, rpc_request::TokenAccountsFilter};
 use solana_sdk::{
     commitment_config::CommitmentConfig,
@@ -182,5 +187,23 @@ impl Client {
 
         let first_token_pubkey = Pubkey::from_str(&token_accounts[0].pubkey)?;
         Ok(Some(first_token_pubkey))
+    }
+
+    pub fn config(&self, program_id: Pubkey, mint: Pubkey) -> Result<Config> {
+        let config_pubkey = pda::config(&mint, &program_id).0;
+        let config_data = self.client.get_account_data(&config_pubkey)?;
+        Config::unpack(&config_data).map_err(|_| CliError::ConfigDataError.into())
+    }
+
+    pub fn initialize(
+        &self,
+        program_id: Pubkey,
+        owner: &dyn Signer,
+        mint: Pubkey,
+        fees: Fees,
+        recipients: Vec<Recipient>,
+    ) -> Result<Signature> {
+        let ix = instruction::initialize(program_id, owner.pubkey(), mint, fees, recipients);
+        self.run_transaction(&[ix], owner.pubkey(), &[owner])
     }
 }

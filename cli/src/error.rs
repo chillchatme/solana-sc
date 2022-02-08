@@ -54,6 +54,9 @@ pub enum CliError {
 
     #[error("Cannot transfer zero tokens")]
     TransferZeroTokens,
+
+    #[error("Data cannot be parsed as config")]
+    ConfigDataError,
 }
 
 impl std::error::Error for AppError {}

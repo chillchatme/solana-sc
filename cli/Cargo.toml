@@ -5,6 +5,7 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0.53"
+chill = {path = "../program"}
 clap = "2.33.0"
 colored = "2.0.0"
 dirs = "4.0.0"
