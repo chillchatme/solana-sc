@@ -17,7 +17,7 @@ pub fn random_fees() -> Fees {
 
 pub fn random_recipients() -> Vec<Recipient> {
     let mut rng = rand::thread_rng();
-    let amount = rng.gen_range(0..Config::MAX_RECIPIENT_NUMBER);
+    let amount = rng.gen_range(0..Config::MAX_RECIPIENT_NUMBER + 1);
 
     let mut recipients = Vec::with_capacity(amount);
     let mut total_mint_share = 100;

@@ -6,11 +6,11 @@ use crate::{
         pda::{self, CONFIG_SEED},
     },
 };
+use borsh::BorshSerialize;
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
     program::invoke_signed,
-    program_pack::Pack,
     pubkey::Pubkey,
     rent::Rent,
     system_instruction,
@@ -57,5 +57,7 @@ pub fn process_initialize(
         &[seeds],
     )?;
 
-    Config::pack(config_account, &mut config.data.borrow_mut())
+    config_account
+        .serialize(&mut *config.data.borrow_mut())
+        .map_err(|e| e.into())
 }

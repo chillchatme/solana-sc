@@ -1,19 +1,16 @@
-#![allow(clippy::ptr_offset_with_cast)]
-
 use crate::error::ChillError;
-use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use borsh::{BorshDeserialize, BorshSerialize};
-use solana_program::{
-    program_error::ProgramError,
-    program_pack::{IsInitialized, Pack, Sealed},
-    pubkey::Pubkey,
-};
+use solana_program::{program_error::ProgramError, pubkey::Pubkey};
 
 #[repr(u8)]
 #[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
 pub enum StateType {
     Uninitialized,
     Config,
+}
+
+impl StateType {
+    pub const LEN: usize = 1;
 }
 
 #[repr(C)]
@@ -26,6 +23,10 @@ pub struct Fees {
     pub item: u64,
 }
 
+impl Fees {
+    pub const LEN: usize = 8 * 5;
+}
+
 #[repr(C)]
 #[derive(Clone, Debug, Default, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct Recipient {
@@ -34,8 +35,12 @@ pub struct Recipient {
     pub transaction_share: u8,
 }
 
+impl Recipient {
+    pub const LEN: usize = 32 + 1 + 1;
+}
+
 #[repr(C)]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct Config {
     state_type: StateType,
     pub mint: Pubkey,
@@ -43,78 +48,16 @@ pub struct Config {
     pub recipients: Vec<Recipient>,
 }
 
-impl Sealed for Config {}
-
-impl Pack for Config {
-    const LEN: usize = 175;
-
-    fn pack_into_slice(&self, dst: &mut [u8]) {
-        let dst = array_mut_ref![dst, 0, Config::LEN];
-        let (state_type, mint, fees, recipients_array) =
-            mut_array_refs![dst, 1, 32, 40, Config::MAX_RECIPIENT_NUMBER * 34];
-
-        state_type.copy_from_slice(&self.state_type.try_to_vec().unwrap());
-        mint.copy_from_slice(&self.mint.try_to_vec().unwrap());
-        fees.copy_from_slice(&self.fees.try_to_vec().unwrap());
-
-        for (i, recipient) in self.recipients.iter().enumerate() {
-            let dst = array_mut_ref![recipients_array, i * 34, 34];
-            dst.copy_from_slice(&recipient.try_to_vec().unwrap())
-        }
-    }
-
-    fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
-        let src = array_ref![src, 0, Config::LEN];
-        let (state_type, mint, fees, recipients_array) =
-            array_refs![src, 1, 32, 40, Config::MAX_RECIPIENT_NUMBER * 34];
-
-        let state_type = StateType::try_from_slice(state_type)?;
-        if state_type != StateType::Config {
-            return Err(ProgramError::InvalidAccountData);
-        }
-
-        let mint = Pubkey::try_from_slice(mint)?;
-        let fees = Fees::try_from_slice(fees)?;
-
-        let mut recipients = Vec::with_capacity(Config::MAX_RECIPIENT_NUMBER);
-        let zero_pubkey = Pubkey::new_from_array([0; 32]);
-
-        for i in 0..Config::MAX_RECIPIENT_NUMBER {
-            let recipient_data = array_ref![recipients_array, i * 34, 34];
-            let recipient = Recipient::try_from_slice(recipient_data)?;
-            if recipient.address != zero_pubkey || recipient.mint_share != 0 {
-                recipients.push(recipient);
-            }
-        }
-
-        Ok(Self {
-            state_type,
-            mint,
-            fees,
-            recipients,
-        })
-    }
-}
-
-impl IsInitialized for Config {
-    fn is_initialized(&self) -> bool {
-        self.state_type == StateType::Config
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            state_type: StateType::Config,
-            mint: Pubkey::default(),
-            fees: Fees::default(),
-            recipients: Vec::default(),
-        }
-    }
-}
-
 impl Config {
+    const VECTOR_PREFIX: usize = 4;
+
     pub const MAX_RECIPIENT_NUMBER: usize = 3;
+
+    pub const LEN: usize = StateType::LEN
+        + 32
+        + Fees::LEN
+        + Self::VECTOR_PREFIX
+        + Self::MAX_RECIPIENT_NUMBER * Recipient::LEN;
 
     pub fn new(
         mint: &Pubkey,
@@ -142,8 +85,22 @@ impl Config {
     }
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            state_type: StateType::Config,
+            mint: Pubkey::default(),
+            fees: Fees::default(),
+            recipients: Vec::default(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use solana_program::borsh::try_from_slice_unchecked;
+    use solana_sdk::{signature::Keypair, signer::Signer};
+
     use super::*;
 
     fn get_recipients(number: u8) -> Vec<Recipient> {
@@ -157,17 +114,19 @@ mod tests {
         let mut recipients = Vec::with_capacity(number.into());
         for _ in 1..number {
             let recipient = Recipient {
-                address: Pubkey::new_unique(),
+                address: Keypair::new().pubkey(),
                 mint_share: share,
                 transaction_share: share,
             };
+
+            assert_eq!(recipient.try_to_vec().unwrap().len(), Recipient::LEN);
 
             recipients.push(recipient);
             remaining_share -= share;
         }
 
         let last_recipient = Recipient {
-            address: Pubkey::new_unique(),
+            address: Keypair::new().pubkey(),
             mint_share: remaining_share,
             transaction_share: remaining_share,
         };
@@ -178,18 +137,26 @@ mod tests {
 
     #[test]
     fn config() {
-        let mint = Pubkey::new_unique();
+        let mint = Keypair::new().pubkey();
         let fees = Fees::default();
 
-        for i in 0..Config::MAX_RECIPIENT_NUMBER {
+        assert_eq!(fees.try_to_vec().unwrap().len(), Fees::LEN);
+
+        for i in 0..=Config::MAX_RECIPIENT_NUMBER {
             let mut recipients = get_recipients(i as u8);
             let config = Config::new(&mint, fees.clone(), recipients.clone()).unwrap();
 
             let mut buffer = [0; Config::LEN];
-            Config::pack(config.clone(), &mut buffer).unwrap();
+            config.serialize(&mut buffer.as_mut()).unwrap();
 
-            let unpacked_config = Config::unpack(&buffer).unwrap();
+            let unpacked_config = try_from_slice_unchecked(&buffer).unwrap();
             assert_eq!(config, unpacked_config);
+
+            if i == Config::MAX_RECIPIENT_NUMBER {
+                assert_eq!(config.try_to_vec().unwrap().len(), Config::LEN);
+            } else {
+                assert!(config.try_to_vec().unwrap().len() <= Config::LEN);
+            }
 
             if !recipients.is_empty() {
                 recipients[0].mint_share -= 1;
