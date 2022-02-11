@@ -1,5 +1,4 @@
 use crate::{error::ChillError, utils::assert};
-use borsh::BorshSerialize;
 use chill_api::{
     pda::{self, CONFIG_SEED},
     state::{Config, Fees, Recipient},
@@ -8,6 +7,7 @@ use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
     program::invoke_signed,
+    program_pack::Pack,
     pubkey::Pubkey,
     rent::Rent,
     system_instruction,
@@ -54,7 +54,5 @@ pub fn process_initialize(
         &[seeds],
     )?;
 
-    config_account
-        .serialize(&mut *config.data.borrow_mut())
-        .map_err(|e| e.into())
+    Config::pack(config_account, &mut config.data.borrow_mut()).map_err(|e| e.into())
 }

@@ -5,7 +5,6 @@ use chill_api::{
 };
 use solana_client::{rpc_client::RpcClient, rpc_request::TokenAccountsFilter};
 use solana_sdk::{
-    borsh::try_from_slice_unchecked,
     commitment_config::CommitmentConfig,
     instruction::Instruction,
     native_token::lamports_to_sol,
@@ -198,8 +197,7 @@ impl Client {
     pub fn config(&self, program_id: Pubkey, mint: Pubkey) -> Result<Config> {
         let config_pubkey = pda::config(&mint, &program_id).0;
         let config_data = self.client.get_account_data(&config_pubkey)?;
-        try_from_slice_unchecked(&config_data)
-            .map_err(|_| CustomClientError::ConfigDataError.into())
+        Config::unpack(&config_data).map_err(|_| CustomClientError::ConfigDataError.into())
     }
 
     pub fn initialize(

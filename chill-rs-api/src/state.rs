@@ -1,6 +1,11 @@
 use crate::error::ChillApiError;
 use borsh::{BorshDeserialize, BorshSerialize};
-use solana_program::{program_error::ProgramError, pubkey::Pubkey};
+use solana_program::{
+    borsh::try_from_slice_unchecked,
+    program_error::ProgramError,
+    program_pack::{IsInitialized, Pack, Sealed},
+    pubkey::Pubkey,
+};
 
 #[repr(u8)]
 #[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
@@ -48,16 +53,34 @@ pub struct Config {
     pub recipients: Vec<Recipient>,
 }
 
-impl Config {
-    const VECTOR_PREFIX: usize = 4;
+impl Sealed for Config {}
 
-    pub const MAX_RECIPIENT_NUMBER: usize = 3;
+impl IsInitialized for Config {
+    fn is_initialized(&self) -> bool {
+        self.state_type == StateType::Config
+    }
+}
 
-    pub const LEN: usize = StateType::LEN
+impl Pack for Config {
+    const LEN: usize = StateType::LEN
         + 32
         + Fees::LEN
         + Self::VECTOR_PREFIX
         + Self::MAX_RECIPIENT_NUMBER * Recipient::LEN;
+
+    fn pack_into_slice(&self, mut dst: &mut [u8]) {
+        self.serialize(&mut dst).unwrap();
+    }
+
+    fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
+        try_from_slice_unchecked(src).map_err(|e| e.into())
+    }
+}
+
+impl Config {
+    const VECTOR_PREFIX: usize = 4;
+
+    pub const MAX_RECIPIENT_NUMBER: usize = 3;
 
     pub fn new(
         mint: &Pubkey,
