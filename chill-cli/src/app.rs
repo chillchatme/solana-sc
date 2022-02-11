@@ -1,8 +1,8 @@
 use crate::{
     cli::{Cli, CliCommand},
-    client::Client,
     error::{AppError, CliError, Result},
 };
+use chill_client::client::Client;
 use colored::Colorize;
 use solana_sdk::{
     native_token::sol_to_lamports,
@@ -71,7 +71,7 @@ impl App<'_> {
         Ok(Box::new(new_keypair))
     }
 
-    fn check_balance(&self, owner: Pubkey) -> Result<()> {
+    fn try_to_airdrop(&self, owner: Pubkey) -> Result<()> {
         if self.client.balance(owner)? == 0 {
             if self.cli.mainnet() {
                 println!("{}", "You have to top up your balance".red());
@@ -179,7 +179,7 @@ impl App<'_> {
 
     fn process_mint(&self) -> Result<()> {
         let owner = self.get_or_create_owner()?;
-        self.check_balance(owner.pubkey())?;
+        self.try_to_airdrop(owner.pubkey())?;
 
         let decimals = self.cli.decimals();
         let mint = self.get_or_create_mint(owner.as_ref(), decimals)?;

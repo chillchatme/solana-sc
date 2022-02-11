@@ -1,4 +1,4 @@
-use crate::error::ChillError;
+use crate::error::ChillApiError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::{program_error::ProgramError, pubkey::Pubkey};
 
@@ -65,14 +65,14 @@ impl Config {
         recipients: Vec<Recipient>,
     ) -> Result<Self, ProgramError> {
         if recipients.len() > Self::MAX_RECIPIENT_NUMBER {
-            return Err(ChillError::MaximumRecipientsNumberExceeded.into());
+            return Err(ChillApiError::MaximumRecipientsNumberExceeded.into());
         }
 
         if !recipients.is_empty() {
             let mint_share_sum = recipients.iter().map(|r| r.mint_share).sum::<u8>();
             let transaction_share_sum = recipients.iter().map(|r| r.mint_share).sum::<u8>();
             if mint_share_sum != 100 || transaction_share_sum != 100 {
-                return Err(ChillError::InvalidShares.into());
+                return Err(ChillApiError::InvalidShares.into());
             }
         }
 

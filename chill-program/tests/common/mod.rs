@@ -1,4 +1,4 @@
-use chill::state::{Config, Fees, Recipient};
+use chill_api::state::{Config, Fees, Recipient};
 use rand::Rng;
 use solana_sdk::{signature::Keypair, signer::Signer};
 

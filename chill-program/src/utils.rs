@@ -1,21 +1,10 @@
 use crate::error::ChillError;
+use chill_api::pda;
 use solana_program::{
     account_info::AccountInfo, entrypoint::ProgramResult, program_error::ProgramError,
     program_option::COption, program_pack::Pack, pubkey::Pubkey,
 };
 use spl_token::state::{Account, Mint};
-
-pub mod pda {
-
-    use super::*;
-
-    pub const CONFIG_SEED: &str = "config";
-
-    pub fn config(mint: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
-        let seeds = &[CONFIG_SEED.as_bytes(), mint.as_ref()];
-        Pubkey::find_program_address(seeds, program_id)
-    }
-}
 
 pub mod assert {
 

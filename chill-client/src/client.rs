@@ -1,8 +1,7 @@
-use crate::error::{CliError, Result};
-use chill::{
-    self, instruction,
+use crate::error::{CustomClientError, Result};
+use chill_api::{
+    self, instruction, pda,
     state::{Config, Fees, Recipient},
-    utils::pda,
 };
 use solana_client::{rpc_client::RpcClient, rpc_request::TokenAccountsFilter};
 use solana_sdk::{
@@ -61,7 +60,7 @@ impl Client {
         )?;
         let new_balance = self.client.get_balance(&address)?;
         if initial_balance >= new_balance {
-            return Err(CliError::CannotAirdrop(lamports_to_sol(lamports)).into());
+            return Err(CustomClientError::CannotAirdrop(lamports_to_sol(lamports)).into());
         }
         Ok(())
     }
@@ -116,8 +115,9 @@ impl Client {
         let data = self
             .client
             .get_account_data(&address)
-            .map_err(|_| CliError::MintNotFound(address))?;
-        Ok(Mint::unpack(&data)?)
+            .map_err(|_| CustomClientError::MintNotFound(address))?;
+        let mint = Mint::unpack(&data).map_err(|_| CustomClientError::DataIsNotMint)?;
+        Ok(mint)
     }
 
     pub fn mint_to(
@@ -127,7 +127,7 @@ impl Client {
         token: Pubkey,
         amount: u64,
     ) -> Result<()> {
-        let ix = mint_to(&spl_token::ID, &mint, &token, &owner.pubkey(), &[], amount)?;
+        let ix = mint_to(&spl_token::ID, &mint, &token, &owner.pubkey(), &[], amount).unwrap();
         self.run_transaction(&[ix], owner.pubkey(), &[owner])?;
         Ok(())
     }
@@ -147,7 +147,8 @@ impl Client {
             &owner.pubkey(),
             &[],
             amount,
-        )?;
+        )
+        .unwrap();
 
         self.run_transaction(&[ix], owner.pubkey(), &[owner])
     }
@@ -157,8 +158,12 @@ impl Client {
         let data = self
             .client
             .get_account_data(&token_pubkey)
-            .map_err(|_| CliError::TokenNotInitialized(owner, mint))?;
-        Ok(Account::unpack(&data)?)
+            .map_err(|_| CustomClientError::TokenNotInitialized(owner, mint))?;
+
+        let token_account =
+            Account::unpack(&data).map_err(|_| CustomClientError::DataIsNotTokenAccount)?;
+
+        Ok(token_account)
     }
 
     pub fn token_balance(&self, owner: Pubkey, mint: Pubkey) -> Result<f64> {
@@ -186,14 +191,15 @@ impl Client {
             return Ok(Some(associated_token_pubkey));
         }
 
-        let first_token_pubkey = Pubkey::from_str(&token_accounts[0].pubkey)?;
+        let first_token_pubkey = Pubkey::from_str(&token_accounts[0].pubkey).unwrap();
         Ok(Some(first_token_pubkey))
     }
 
     pub fn config(&self, program_id: Pubkey, mint: Pubkey) -> Result<Config> {
         let config_pubkey = pda::config(&mint, &program_id).0;
         let config_data = self.client.get_account_data(&config_pubkey)?;
-        try_from_slice_unchecked(&config_data).map_err(|_| CliError::ConfigDataError.into())
+        try_from_slice_unchecked(&config_data)
+            .map_err(|_| CustomClientError::ConfigDataError.into())
     }
 
     pub fn initialize(

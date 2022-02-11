@@ -1,6 +1,6 @@
 use crate::{
+    pda,
     state::{Fees, Recipient},
-    utils::pda,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::{

@@ -1,12 +1,9 @@
-use crate::{
-    error::ChillError,
-    state::{Config, Fees, Recipient},
-    utils::{
-        assert,
-        pda::{self, CONFIG_SEED},
-    },
-};
+use crate::{error::ChillError, utils::assert};
 use borsh::BorshSerialize;
+use chill_api::{
+    pda::{self, CONFIG_SEED},
+    state::{Config, Fees, Recipient},
+};
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,

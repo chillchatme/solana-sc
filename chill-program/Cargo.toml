@@ -1,5 +1,5 @@
 [package]
-name = "chill"
+name = "chill-program"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,6 +8,7 @@ no-entrypoint = []
 
 [dependencies]
 borsh = "0.9.3"
+chill-api = { path = "../chill-rs-api" }
 num-derive = "0.3.3"
 num-traits = "0.2.14"
 solana-program = "1.9.5"
@@ -19,7 +20,7 @@ mpl-token-metadata = { version = "1.2.3", features = ["no-entrypoint"] }
 rand = "0.8.4"
 solana-sdk = "1.9.5"
 solana-client = "1.9.5"
-chill-cli = {path = "../cli"}
+chill-client = {path = "../chill-client"}
 
 [lib]
 crate-type = ["cdylib", "lib"]

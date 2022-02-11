@@ -1,8 +1,6 @@
-use crate::{
-    instruction::ChillInstruction,
-    processor::{initialize::process_initialize, mint_nft::process_mint_nft},
-};
+use crate::processor::{initialize::process_initialize, mint_nft::process_mint_nft};
 use borsh::BorshDeserialize;
+use chill_api::instruction::ChillInstruction;
 use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult, msg, pubkey::Pubkey};
 
 pub mod initialize;

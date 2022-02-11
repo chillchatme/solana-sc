@@ -1,4 +1,4 @@
-use chill_cli::client::Client;
+use chill_client::client::Client;
 use common::{random_fees, random_recipients, RPC_URL};
 use solana_sdk::signature::{Keypair, Signer};
 
@@ -18,7 +18,7 @@ fn initialize() {
 
         client
             .initialize(
-                chill::ID,
+                chill_api::ID,
                 &authority,
                 mint,
                 fees.clone(),
@@ -26,7 +26,7 @@ fn initialize() {
             )
             .unwrap();
 
-        let config = client.config(chill::ID, mint).unwrap();
+        let config = client.config(chill_api::ID, mint).unwrap();
         assert_eq!(config.fees, fees);
         assert_eq!(config.recipients, recipients);
         assert_eq!(config.mint, mint);
@@ -36,7 +36,7 @@ fn initialize() {
 
         // Already initialized
         assert!(client
-            .initialize(chill::ID, &authority, mint, fees, recipients)
+            .initialize(chill_api::ID, &authority, mint, fees, recipients)
             .is_err());
     }
 }
