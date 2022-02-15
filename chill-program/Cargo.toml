@@ -17,10 +17,11 @@ spl-token = { version = "3.2.0", features = ["no-entrypoint"] }
 mpl-token-metadata = { version = "1.2.3", features = ["no-entrypoint"] }
 
 [dev-dependencies]
-rand = "0.8.4"
-solana-sdk = "1.9.5"
-solana-client = "1.9.5"
 chill-client = {path = "../chill-client"}
+lazy_static = "1.4.0"
+rand = "0.8.4"
+solana-client = "1.9.5"
+solana-sdk = "1.9.5"
 
 [lib]
 crate-type = ["cdylib", "lib"]
