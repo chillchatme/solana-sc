@@ -1,52 +1,110 @@
-use crate::error::ChillError;
-use chill_api::pda;
+use chill_api::state::{Config, NftType};
+use mpl_token_metadata::state::Creator;
 use solana_program::{
-    account_info::AccountInfo, entrypoint::ProgramResult, program_error::ProgramError,
-    program_option::COption, program_pack::Pack, pubkey::Pubkey,
+    account_info::AccountInfo, entrypoint::ProgramResult, program::invoke, program_pack::Pack,
 };
-use spl_token::state::{Account, Mint};
+use spl_token::state::Account;
 
-pub mod assert {
+pub mod assert;
+pub mod nft;
 
-    use super::*;
+pub struct TokenBuilder {
+    pub name: String,
+    pub symbol: String,
+    pub uri: String,
+    pub creators: Option<Vec<Creator>>,
+    pub seller_fee_basis_points: u16,
+}
 
-    pub fn config_pubkey(config: &Pubkey, mint: &Pubkey, program_id: &Pubkey) -> ProgramResult {
-        let config_pda = pda::config(mint, program_id).0;
-        if *config != config_pda {
-            return Err(ChillError::ConfigHasWrongPubkey.into());
+pub fn sign_metadata<'info>(
+    creator: &AccountInfo<'info>,
+    metadata: &AccountInfo<'info>,
+    metadata_program: &AccountInfo<'info>,
+) -> ProgramResult {
+    let ix = mpl_token_metadata::instruction::sign_metadata(
+        mpl_token_metadata::ID,
+        *metadata.key,
+        *creator.key,
+    );
+
+    invoke(
+        &ix,
+        &[creator.clone(), metadata.clone(), metadata_program.clone()],
+    )
+}
+
+pub fn set_primary_sell_happened<'info>(
+    metadata: &AccountInfo<'info>,
+    owner: &AccountInfo<'info>,
+    token_account: &AccountInfo<'info>,
+    metadata_program: &AccountInfo<'info>,
+) -> ProgramResult {
+    let ix = mpl_token_metadata::instruction::update_primary_sale_happened_via_token(
+        mpl_token_metadata::ID,
+        *metadata.key,
+        *owner.key,
+        *token_account.key,
+    );
+
+    invoke(
+        &ix,
+        &[
+            owner.clone(),
+            metadata.clone(),
+            token_account.clone(),
+            metadata_program.clone(),
+        ],
+    )
+}
+
+pub fn transfer_chill<'info>(
+    owner: &AccountInfo<'info>,
+    from_token_account: &AccountInfo<'info>,
+    recipients_token_accounts: &[AccountInfo<'info>],
+    token_program: &AccountInfo<'info>,
+    config: &Config,
+    nft_type: NftType,
+) -> ProgramResult {
+    let price = config.fees.of(nft_type);
+    for recipient_token_account in recipients_token_accounts {
+        let token_account = Account::unpack(&recipient_token_account.data.borrow())?;
+        let token_owner = token_account.owner;
+
+        if *owner.key == token_owner {
+            continue;
         }
-        Ok(())
+
+        let recipient = config
+            .recipients
+            .iter()
+            .find(|r| r.address == token_owner)
+            .unwrap();
+
+        let amount = price
+            .checked_mul(recipient.mint_share.into())
+            .unwrap()
+            .checked_div(100)
+            .unwrap();
+
+        let ix = spl_token::instruction::transfer(
+            &spl_token::ID,
+            from_token_account.key,
+            recipient_token_account.key,
+            owner.key,
+            &[],
+            amount,
+        )?;
+
+        invoke(
+            &ix,
+            &[
+                owner.clone(),
+                from_token_account.clone(),
+                recipient_token_account.clone(),
+                token_program.clone(),
+            ],
+        )?;
     }
 
-    pub fn owner(account: &AccountInfo, program_id: &Pubkey) -> ProgramResult {
-        if account.owner != program_id {
-            return Err(ProgramError::IllegalOwner);
-        }
-        Ok(())
-    }
-
-    pub fn mint_authority(mint: &AccountInfo, authority: &Pubkey) -> ProgramResult {
-        assert::owner(mint, &spl_token::ID)?;
-
-        let mint_account = Mint::unpack(&mint.data.borrow())?;
-        if mint_account.mint_authority != COption::Some(*authority) {
-            return Err(ChillError::MintHasAnotherAuthority.into());
-        }
-
-        Ok(())
-    }
-
-    pub fn token_account(token: &AccountInfo, owner: &Pubkey, mint: &Pubkey) -> ProgramResult {
-        assert::owner(token, &spl_token::ID)?;
-
-        let token_account = Account::unpack(&token.data.borrow())?;
-        if token_account.owner != *owner {
-            return Err(ChillError::TokenHasAnotherOwner.into());
-        }
-        if token_account.mint != *mint {
-            return Err(ChillError::TokenHasAnotherMint.into());
-        }
-
-        Ok(())
-    }
+    Ok(())
 }

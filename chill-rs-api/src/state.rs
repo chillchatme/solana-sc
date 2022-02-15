@@ -7,14 +7,30 @@ use solana_program::{
     pubkey::Pubkey,
 };
 
+pub const AUTHORITY_SHARE: u8 = 2;
+
 #[repr(u8)]
-#[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
 pub enum StateType {
     Uninitialized,
     Config,
 }
 
 impl StateType {
+    pub const LEN: usize = 1;
+}
+
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+pub enum NftType {
+    Character,
+    Pet,
+    Emote,
+    Tileset,
+    Item,
+}
+
+impl NftType {
     pub const LEN: usize = 1;
 }
 
@@ -30,6 +46,16 @@ pub struct Fees {
 
 impl Fees {
     pub const LEN: usize = 8 * 5;
+
+    pub fn of(&self, nft_type: NftType) -> u64 {
+        match nft_type {
+            NftType::Character => self.character,
+            NftType::Pet => self.pet,
+            NftType::Emote => self.emote,
+            NftType::Tileset => self.tileset,
+            NftType::Item => self.item,
+        }
+    }
 }
 
 #[repr(C)]
@@ -189,7 +215,7 @@ mod tests {
         }
 
         let recipients = get_recipients(Config::MAX_RECIPIENT_NUMBER as u8 + 1);
-        let config_overflow = Config::new(&mint, fees.clone(), recipients);
+        let config_overflow = Config::new(&mint, fees, recipients);
         assert!(config_overflow.is_err());
     }
 }

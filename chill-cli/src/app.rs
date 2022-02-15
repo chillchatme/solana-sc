@@ -171,7 +171,7 @@ impl App<'_> {
     }
 
     fn print_balance(&self, owner: Pubkey, mint: Pubkey) -> Result<()> {
-        let balance = self.client.token_balance(owner, mint)?;
+        let balance = self.client.ui_token_balance(owner, mint)?;
         println!("{} {} tokens", "Balance:".green().bold(), balance);
 
         Ok(())
@@ -218,7 +218,7 @@ impl App<'_> {
                 .create_token_account(owner.as_ref(), receiver, mint)?,
         };
 
-        let current_balance = self.client.token_balance(owner.pubkey(), mint)?;
+        let current_balance = self.client.ui_token_balance(owner.pubkey(), mint)?;
         if ui_amount > current_balance {
             return Err(CliError::InsufficientTokens(ui_amount, current_balance).into());
         }

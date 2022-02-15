@@ -8,6 +8,15 @@ use thiserror::Error;
 
 #[derive(Clone, Debug, Eq, Error, FromPrimitive, PartialEq)]
 pub enum ChillError {
+    #[error("Account is already initialized")]
+    AccountAlreadyInitialized,
+
+    #[error("Wrong authority")]
+    WrongAuthority,
+
+    #[error("Wrong recipients list")]
+    WrongRecipientsList,
+
     #[error("Config has wrong pubkey")]
     ConfigHasWrongPubkey,
 

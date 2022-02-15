@@ -1,6 +1,8 @@
 use crate::error::{CustomClientError, Result};
 use chill_api::{
-    self, instruction, pda,
+    self,
+    instruction::{self, InitializeArgs, MintNftArgs},
+    pda,
     state::{Config, Fees, Recipient},
 };
 use solana_client::{rpc_client::RpcClient, rpc_request::TokenAccountsFilter};
@@ -18,8 +20,7 @@ use solana_sdk::{
 };
 use spl_associated_token_account::{create_associated_token_account, get_associated_token_address};
 use spl_token::{
-    amount_to_ui_amount,
-    instruction::{initialize_mint, mint_to},
+    amount_to_ui_amount, instruction as spl_instruction,
     state::{Account, Mint},
 };
 use std::{convert::TryInto, str::FromStr};
@@ -80,7 +81,7 @@ impl Client {
                 space.try_into().unwrap(),
                 &spl_token::ID,
             ),
-            initialize_mint(
+            spl_instruction::initialize_mint(
                 &spl_token::ID,
                 &mint.pubkey(),
                 &owner.pubkey(),
@@ -110,6 +111,10 @@ impl Client {
         Ok(get_associated_token_address(&owner, &mint))
     }
 
+    pub fn get_account_data(&self, address: Pubkey) -> Result<Vec<u8>> {
+        self.client.get_account_data(&address).map_err(|e| e.into())
+    }
+
     pub fn mint_account(&self, address: Pubkey) -> Result<Mint> {
         let data = self
             .client
@@ -126,7 +131,10 @@ impl Client {
         token: Pubkey,
         amount: u64,
     ) -> Result<()> {
-        let ix = mint_to(&spl_token::ID, &mint, &token, &owner.pubkey(), &[], amount).unwrap();
+        let ix =
+            spl_instruction::mint_to(&spl_token::ID, &mint, &token, &owner.pubkey(), &[], amount)
+                .unwrap();
+
         self.run_transaction(&[ix], owner.pubkey(), &[owner])?;
         Ok(())
     }
@@ -165,7 +173,12 @@ impl Client {
         Ok(token_account)
     }
 
-    pub fn token_balance(&self, owner: Pubkey, mint: Pubkey) -> Result<f64> {
+    pub fn token_balance(&self, owner: Pubkey, mint: Pubkey) -> Result<u64> {
+        let token_account = self.token_account(owner, mint)?;
+        Ok(token_account.amount)
+    }
+
+    pub fn ui_token_balance(&self, owner: Pubkey, mint: Pubkey) -> Result<f64> {
         let token_account = self.token_account(owner, mint)?;
         let mint = self.mint_account(token_account.mint)?;
         let amount = token_account.amount;
@@ -208,7 +221,49 @@ impl Client {
         fees: Fees,
         recipients: Vec<Recipient>,
     ) -> Result<Signature> {
-        let ix = instruction::initialize(program_id, owner.pubkey(), mint, fees, recipients);
+        let args = InitializeArgs { fees, recipients };
+        let ix = instruction::initialize(program_id, owner.pubkey(), mint, args);
         self.run_transaction(&[ix], owner.pubkey(), &[owner])
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn mint_nft(
+        &self,
+        program_id: Pubkey,
+        owner: &dyn Signer,
+        user: &dyn Signer,
+        mint_chill: Pubkey,
+        user_token_account: Pubkey,
+        nft_mint: Pubkey,
+        nft_token: Pubkey,
+        args: MintNftArgs,
+    ) -> Result<Signature> {
+        let config = self.config(program_id, mint_chill)?;
+
+        let mut recipients_token_accounts = Vec::with_capacity(config.recipients.len());
+        for recipient in config.recipients {
+            match self.find_token_account(recipient.address, mint_chill)? {
+                Some(token_address) => recipients_token_accounts.push(token_address),
+                None => {
+                    let token_address =
+                        self.create_token_account(user, recipient.address, mint_chill)?;
+                    recipients_token_accounts.push(token_address);
+                }
+            };
+        }
+
+        let ix = instruction::mint_nft(
+            program_id,
+            owner.pubkey(),
+            user.pubkey(),
+            mint_chill,
+            user_token_account,
+            nft_mint,
+            nft_token,
+            &recipients_token_accounts,
+            args,
+        );
+
+        self.run_transaction(&[ix], user.pubkey(), &[owner, user])
     }
 }
