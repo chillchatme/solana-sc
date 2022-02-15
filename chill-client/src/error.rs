@@ -16,14 +16,11 @@ pub enum CustomClientError {
     #[error("Data cannot be parsed as a token account")]
     DataIsNotTokenAccount,
 
-    #[error("Cannot airdrop {0} SOL")]
-    CannotAirdrop(f64),
-
     #[error("Mint '{0}' not found. Please specify the correct mint address with '--mint-address' argument")]
     MintNotFound(Pubkey),
 
-    #[error("Token is not initialized for owner '{0}' and mint '{1}'")]
-    TokenNotInitialized(Pubkey, Pubkey),
+    #[error("Token account '{0}' is not initialized")]
+    TokenNotInitialized(Pubkey),
 
     #[error("Data cannot be parsed as config")]
     ConfigDataError,

@@ -159,8 +159,9 @@ impl App<'_> {
     }
 
     fn get_or_create_token_account(&self, owner: &dyn Signer, mint: Pubkey) -> Result<Pubkey> {
-        if let Ok(token) = self.client.get_token_pubkey(owner.pubkey(), mint) {
-            return Ok(token);
+        let associated_token_pubkey = self.client.associated_token_address(owner.pubkey(), mint);
+        if self.client.token_account(associated_token_pubkey).is_ok() {
+            return Ok(associated_token_pubkey);
         }
 
         let token = self

@@ -79,7 +79,7 @@ fn assert_metadata(
     client: &Client,
 ) {
     let metadata_pubkey = pda::metadata(&nft_mint);
-    let metadata_data = client.get_account_data(metadata_pubkey).unwrap();
+    let metadata_data = client.account_data(metadata_pubkey).unwrap();
     let metadata = try_from_slice_unchecked::<Metadata>(&metadata_data).unwrap();
 
     assert_eq!(metadata.update_authority, authority);
@@ -253,7 +253,7 @@ fn mint_nft_with_recipient_authority() {
 
     for _ in 0..2 {
         let mint = initialize(&client, &authority, Some(authority.pubkey()));
-        let authority_token_account = client.get_token_pubkey(authority.pubkey(), mint).unwrap();
+        let authority_token_account = client.associated_token_address(authority.pubkey(), mint);
         client
             .mint_to(&authority, mint, authority_token_account, TOKEN_AMOUNT)
             .unwrap();

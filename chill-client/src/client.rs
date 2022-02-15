@@ -9,7 +9,6 @@ use solana_client::{rpc_client::RpcClient, rpc_request::TokenAccountsFilter};
 use solana_sdk::{
     commitment_config::CommitmentConfig,
     instruction::Instruction,
-    native_token::lamports_to_sol,
     program_pack::Pack,
     pubkey::Pubkey,
     signature::{Keypair, Signature},
@@ -51,18 +50,10 @@ impl Client {
 
     pub fn airdrop(&self, address: Pubkey, lamports: u64) -> Result<()> {
         let signature = self.client.request_airdrop(&address, lamports)?;
-        let initial_balance = self.client.get_balance(&address)?;
         let blockhash = self.client.get_latest_blockhash()?;
-        self.client.confirm_transaction_with_spinner(
-            &signature,
-            &blockhash,
-            CommitmentConfig::confirmed(),
-        )?;
-        let new_balance = self.client.get_balance(&address)?;
-        if initial_balance >= new_balance {
-            return Err(CustomClientError::CannotAirdrop(lamports_to_sol(lamports)).into());
-        }
-        Ok(())
+        self.client
+            .confirm_transaction_with_spinner(&signature, &blockhash, CommitmentConfig::confirmed())
+            .map_err(|e| e.into())
     }
 
     pub fn balance(&self, owner: Pubkey) -> Result<u64> {
@@ -94,24 +85,23 @@ impl Client {
         Ok(mint.pubkey())
     }
 
+    pub fn associated_token_address(&self, owner: Pubkey, mint: Pubkey) -> Pubkey {
+        get_associated_token_address(&owner, &mint)
+    }
+
     pub fn create_token_account(
         &self,
         payer: &dyn Signer,
         owner: Pubkey,
         mint: Pubkey,
     ) -> Result<Pubkey> {
-        let token_pubkey = get_associated_token_address(&owner, &mint);
+        let token_pubkey = self.associated_token_address(owner, mint);
         let ix = create_associated_token_account(&payer.pubkey(), &owner, &mint);
         self.run_transaction(&[ix], payer.pubkey(), &[payer])?;
         Ok(token_pubkey)
     }
 
-    pub fn get_token_pubkey(&self, owner: Pubkey, mint: Pubkey) -> Result<Pubkey> {
-        self.token_account(owner, mint)?;
-        Ok(get_associated_token_address(&owner, &mint))
-    }
-
-    pub fn get_account_data(&self, address: Pubkey) -> Result<Vec<u8>> {
+    pub fn account_data(&self, address: Pubkey) -> Result<Vec<u8>> {
         self.client.get_account_data(&address).map_err(|e| e.into())
     }
 
@@ -146,7 +136,7 @@ impl Client {
         receiver_token_account: Pubkey,
         amount: u64,
     ) -> Result<Signature> {
-        let owner_token_pubkey = get_associated_token_address(&owner.pubkey(), &mint);
+        let owner_token_pubkey = self.associated_token_address(owner.pubkey(), mint);
         let ix = spl_token::instruction::transfer(
             &spl_token::ID,
             &owner_token_pubkey,
@@ -160,12 +150,11 @@ impl Client {
         self.run_transaction(&[ix], owner.pubkey(), &[owner])
     }
 
-    pub fn token_account(&self, owner: Pubkey, mint: Pubkey) -> Result<Account> {
-        let token_pubkey = get_associated_token_address(&owner, &mint);
+    pub fn token_account(&self, address: Pubkey) -> Result<Account> {
         let data = self
             .client
-            .get_account_data(&token_pubkey)
-            .map_err(|_| CustomClientError::TokenNotInitialized(owner, mint))?;
+            .get_account_data(&address)
+            .map_err(|_| CustomClientError::TokenNotInitialized(address))?;
 
         let token_account =
             Account::unpack(&data).map_err(|_| CustomClientError::DataIsNotTokenAccount)?;
@@ -174,16 +163,26 @@ impl Client {
     }
 
     pub fn token_balance(&self, owner: Pubkey, mint: Pubkey) -> Result<u64> {
-        let token_account = self.token_account(owner, mint)?;
-        Ok(token_account.amount)
+        let filter = TokenAccountsFilter::Mint(mint);
+        let token_accounts = self.client.get_token_accounts_by_owner(&owner, filter)?;
+        let addresses = token_accounts
+            .iter()
+            .map(|t| Pubkey::from_str(&t.pubkey).unwrap());
+
+        let mut balance = 0;
+        for address in addresses {
+            let token_account = self.token_account(address)?;
+            balance += token_account.amount;
+        }
+
+        Ok(balance)
     }
 
     pub fn ui_token_balance(&self, owner: Pubkey, mint: Pubkey) -> Result<f64> {
-        let token_account = self.token_account(owner, mint)?;
-        let mint = self.mint_account(token_account.mint)?;
-        let amount = token_account.amount;
+        let token_balance = self.token_balance(owner, mint)?;
+        let mint = self.mint_account(mint)?;
         let decimals = mint.decimals;
-        Ok(amount_to_ui_amount(amount, decimals))
+        Ok(amount_to_ui_amount(token_balance, decimals))
     }
 
     pub fn find_token_account(&self, address: Pubkey, mint: Pubkey) -> Result<Option<Pubkey>> {
@@ -193,7 +192,7 @@ impl Client {
             return Ok(None);
         }
 
-        let associated_token_pubkey = get_associated_token_address(&address, &mint);
+        let associated_token_pubkey = self.associated_token_address(address, mint);
         let associated_token_string = associated_token_pubkey.to_string();
         let associated_token_exists = token_accounts
             .iter()
