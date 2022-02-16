@@ -11,8 +11,11 @@ use solana_sdk::{
     signature::{read_keypair_file, write_keypair_file, Keypair},
     signer::Signer,
 };
-use spl_token::amount_to_ui_amount;
-use std::{fs, path::PathBuf, process::exit};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::exit,
+};
 
 pub struct App<'cli> {
     cli: Cli<'cli>,
@@ -45,7 +48,7 @@ impl App<'_> {
 
         if keypair_path.is_file() {
             let keypair = read_keypair_file(keypair_path)
-                .map_err(|_| CliError::CannotParseFile(keypair_filename))?;
+                .map_err(|e| CliError::CannotParseFile(keypair_filename, e.to_string()))?;
             Ok(Box::new(keypair))
         } else {
             Err(CliError::OwnerNotFound.into())
@@ -63,13 +66,7 @@ impl App<'_> {
         write_keypair_file(&new_keypair, keypair_path)
             .map_err(|_| CliError::CannotWriteToFile(keypair_filename.clone()))?;
 
-        println!(
-            "{0} \"{1}\"\n{2} {3}",
-            "Keypair file:".yellow(),
-            keypair_filename,
-            "Pubkey:".yellow(),
-            new_keypair.pubkey(),
-        );
+        println!("{0} \"{1}\"", "Keypair file:".yellow(), keypair_filename);
 
         Ok(Box::new(new_keypair))
     }
@@ -87,15 +84,22 @@ impl App<'_> {
         Ok(())
     }
 
+    fn get_owner_pubkey(&self) -> Result<Pubkey> {
+        match self.cli.owner_pubkey() {
+            Some(owner) => Ok(owner),
+            None => Ok(self.get_default_keypair()?.pubkey()),
+        }
+    }
+
     fn get_owner(&self) -> Result<Box<dyn Signer>> {
-        match self.cli.owner() {
+        match self.cli.owner()? {
             Some(owner) => Ok(owner),
             None => self.get_default_keypair(),
         }
     }
 
     fn get_or_create_owner(&self) -> Result<Box<dyn Signer>> {
-        match self.cli.owner() {
+        match self.cli.owner()? {
             Some(owner) => Ok(owner),
             None => self.get_or_create_default_keypair(),
         }
@@ -103,17 +107,14 @@ impl App<'_> {
 
     fn save_mint(&self, mint: Pubkey) -> Result<()> {
         let save_path = self.cli.save_path();
+
         std::fs::write(save_path, mint.to_string())
             .map_err(|_| CliError::CannotWriteToFile(save_path.to_owned()))?;
 
-        let path = std::path::Path::new(save_path);
+        let path = Path::new(save_path);
         let full_path = fs::canonicalize(path).unwrap();
-
-        println!(
-            "{0} \"{1}\"",
-            "Mint file:".cyan(),
-            full_path.as_os_str().to_str().unwrap()
-        );
+        let full_path_str = full_path.as_os_str().to_str().unwrap();
+        println!("{0} \"{1}\"", "Mint file:".cyan(), full_path_str);
         Ok(())
     }
 
@@ -127,15 +128,27 @@ impl App<'_> {
     }
 
     fn get_mint(&self, owner: Pubkey) -> Result<Pubkey> {
-        let mint = self.cli.mint()?;
-        self.assert_mint_owner(mint, owner)?;
-        Ok(mint)
+        match self.cli.mint()? {
+            Some(mint) => {
+                self.assert_mint_owner(mint, owner)?;
+                Ok(mint)
+            }
+            None => Err(CliError::MintNotSpecified.into()),
+        }
     }
 
     fn get_or_create_mint(&self, owner: &dyn Signer, decimals: u8) -> Result<Pubkey> {
-        if let Ok(mint) = self.cli.mint_with_default() {
+        if let Some(mint) = self.cli.mint()? {
             self.assert_mint_owner(mint, owner.pubkey())?;
             return Ok(mint);
+        }
+
+        let save_path = self.cli.save_path();
+        let path = Path::new(save_path);
+        if path.exists() {
+            let full_path = fs::canonicalize(path).unwrap();
+            let full_path_str = full_path.as_os_str().to_str().unwrap();
+            return Err(CliError::MintFileExists(full_path_str.to_owned()).into());
         }
 
         let mint = self.client.create_mint(owner, decimals)?;
@@ -145,26 +158,21 @@ impl App<'_> {
         Ok(mint)
     }
 
-    fn get_or_create_token(&self, owner: &dyn Signer, mint: Pubkey) -> Result<Pubkey> {
+    fn get_or_create_token_account(&self, owner: &dyn Signer, mint: Pubkey) -> Result<Pubkey> {
         if let Ok(token) = self.client.get_token_pubkey(owner.pubkey(), mint) {
             return Ok(token);
         }
 
-        let token = self.client.create_token_account(owner, mint)?;
-        println!("{0} {1}", "Token:".cyan(), token);
+        let token = self
+            .client
+            .create_token_account(owner, owner.pubkey(), mint)?;
 
         Ok(token)
     }
 
-    fn print_balance(&self, owner: Pubkey, mint: Pubkey, decimals: u8) -> Result<()> {
-        let token_account = self.client.token_account(owner, mint)?;
-        let amount = token_account.amount;
-
-        println!(
-            "{} {} tokens",
-            "Balance:".green(),
-            amount_to_ui_amount(amount, decimals)
-        );
+    fn print_balance(&self, owner: Pubkey, mint: Pubkey) -> Result<()> {
+        let balance = self.client.token_balance(owner, mint)?;
+        println!("{} {} tokens", "Balance:".green().bold(), balance);
 
         Ok(())
     }
@@ -175,27 +183,63 @@ impl App<'_> {
 
         let decimals = self.cli.decimals();
         let mint = self.get_or_create_mint(owner.as_ref(), decimals)?;
-        let token = self.get_or_create_token(owner.as_ref(), mint)?;
+        let token = self.get_or_create_token_account(owner.as_ref(), mint)?;
 
         let ui_amount = self.cli.ui_amount();
         let amount = spl_token::ui_amount_to_amount(ui_amount, decimals);
         self.client.mint_to(owner.as_ref(), mint, token, amount)?;
 
-        self.print_balance(owner.pubkey(), mint, decimals)
+        self.print_balance(owner.pubkey(), mint)
     }
 
     fn process_print_balance(&self) -> Result<()> {
+        let owner = self.get_owner_pubkey()?;
+        let mint = self.cli.mint()?;
+        match mint {
+            Some(mint) => self.print_balance(owner, mint),
+            None => Err(CliError::MintNotSpecified.into()),
+        }
+    }
+
+    fn process_transfer(&self) -> Result<()> {
         let owner = self.get_owner()?;
         let mint = self.get_mint(owner.pubkey())?;
+        let ui_amount = self.cli.ui_amount();
+        let receiver = self.cli.receiver();
+
+        if ui_amount == 0.0 {
+            return Err(CliError::TransferZeroTokens.into());
+        }
+
+        let receiver_token_account = match self.client.find_token_account(receiver, mint)? {
+            Some(token_account) => token_account,
+            None => self
+                .client
+                .create_token_account(owner.as_ref(), receiver, mint)?,
+        };
+
+        let current_balance = self.client.token_balance(owner.pubkey(), mint)?;
+        if ui_amount > current_balance {
+            return Err(CliError::InsufficientTokens(ui_amount, current_balance).into());
+        }
+
         let mint_account = self.client.mint_account(mint)?;
         let decimals = mint_account.decimals;
-        self.print_balance(owner.pubkey(), mint, decimals)
+        let amount = spl_token::ui_amount_to_amount(ui_amount, decimals);
+
+        let signature =
+            self.client
+                .transfer_tokens(owner.as_ref(), mint, receiver_token_account, amount)?;
+
+        println!("{} {}", "Signature:".cyan(), signature);
+        self.print_balance(owner.pubkey(), mint)
     }
 
     pub fn run(&self) {
         let result = match self.cli.command() {
             CliCommand::Mint => self.process_mint(),
             CliCommand::Balance => self.process_print_balance(),
+            CliCommand::Transfer => self.process_transfer(),
         };
 
         if let Err(error) = result {
