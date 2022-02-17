@@ -1,5 +1,6 @@
-use crate::{error::ChillError, utils::assert};
+use crate::utils::assert;
 use chill_api::{
+    error::ChillProgramError,
     instruction::InitializeArgs,
     pda::{self, CONFIG_SEED},
     state::Config,
@@ -32,7 +33,7 @@ pub fn process_initialize(
     assert::config_pubkey(config.key, mint.key, program_id)?;
 
     if !config.data_is_empty() {
-        return Err(ChillError::ConfigAlreadyInitialized.into());
+        return Err(ChillProgramError::ConfigAlreadyInitialized.into());
     }
 
     let rent = Rent::get()?;

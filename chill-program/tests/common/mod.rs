@@ -11,7 +11,7 @@ use std::sync::Mutex;
 pub const DECIMALS: u8 = 9;
 pub const LAMPORTS: u64 = 500_000_000;
 pub const TOKEN_AMOUNT: u64 = 1_000;
-pub const RPC_URL: &str = "https://api.devnet.solana.com";
+pub const RPC_URL: &str = "https://devnet.solana.com";
 
 lazy_static! {
     static ref TEST_MUTEX: Mutex<()> = Mutex::new(());

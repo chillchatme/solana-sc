@@ -1,4 +1,4 @@
-use crate::error::ChillApiError;
+use crate::error::ChillProgramError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::{
     borsh::try_from_slice_unchecked,
@@ -139,16 +139,16 @@ impl Config {
 
     pub const MAX_RECIPIENT_NUMBER: usize = 3;
 
-    pub fn check_recipients(recipients: &Vec<Recipient>) -> Result<(), ChillApiError> {
+    pub fn check_recipients(recipients: &Vec<Recipient>) -> Result<(), ChillProgramError> {
         if recipients.len() > Self::MAX_RECIPIENT_NUMBER {
-            return Err(ChillApiError::MaximumRecipientsNumberExceeded.into());
+            return Err(ChillProgramError::MaximumRecipientsNumberExceeded.into());
         }
 
         if !recipients.is_empty() {
             let mint_share_sum = recipients.iter().map(|r| r.mint_share).sum::<u8>();
             let transaction_share_sum = recipients.iter().map(|r| r.mint_share).sum::<u8>();
             if mint_share_sum != 100 || transaction_share_sum != 100 {
-                return Err(ChillApiError::InvalidShares.into());
+                return Err(ChillProgramError::InvalidShares.into());
             }
         }
 
@@ -159,7 +159,7 @@ impl Config {
         mint: &Pubkey,
         fees: Fees,
         recipients: Vec<Recipient>,
-    ) -> Result<Self, ChillApiError> {
+    ) -> Result<Self, ChillProgramError> {
         Self::check_recipients(&recipients)?;
 
         Ok(Self {

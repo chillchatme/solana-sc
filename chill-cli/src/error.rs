@@ -1,4 +1,4 @@
-use chill_api::error::ChillApiError;
+use chill_api::error::ChillProgramError;
 use chill_client::error::ClientError;
 use colored::Colorize;
 use solana_client::{
@@ -78,8 +78,8 @@ impl From<ParsePubkeyError> for AppError {
     }
 }
 
-impl From<ChillApiError> for AppError {
-    fn from(error: ChillApiError) -> Self {
+impl From<ChillProgramError> for AppError {
+    fn from(error: ChillProgramError) -> Self {
         AppError::InternalError(error.into())
     }
 }

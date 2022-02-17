@@ -1,5 +1,5 @@
-use crate::{error::ChillError, utils::assert};
-use chill_api::{pda, state::Config};
+use crate::utils::assert;
+use chill_api::{error::ChillProgramError, pda, state::Config};
 use solana_program::{
     account_info::AccountInfo, entrypoint::ProgramResult, program_error::ProgramError,
     program_option::COption, program_pack::Pack, pubkey::Pubkey,
@@ -16,7 +16,7 @@ pub fn owner(account: &AccountInfo, program_id: &Pubkey) -> ProgramResult {
 pub fn config_pubkey(config: &Pubkey, mint: &Pubkey, program_id: &Pubkey) -> ProgramResult {
     let config_pda = pda::config(mint, program_id).0;
     if *config != config_pda {
-        return Err(ChillError::ConfigHasWrongPubkey.into());
+        return Err(ChillProgramError::ConfigHasWrongPubkey.into());
     }
     Ok(())
 }
@@ -31,7 +31,7 @@ pub fn mint_authority(mint: &AccountInfo, authority: &Pubkey) -> ProgramResult {
 
     let mint_account = Mint::unpack(&mint.data.borrow())?;
     if mint_account.mint_authority != COption::Some(*authority) {
-        return Err(ChillError::MintHasAnotherAuthority.into());
+        return Err(ChillProgramError::MintHasAnotherAuthority.into());
     }
 
     Ok(())
@@ -42,10 +42,10 @@ pub fn token_account(token: &AccountInfo, owner: &Pubkey, mint: &Pubkey) -> Prog
 
     let token_account = Account::unpack(&token.data.borrow())?;
     if token_account.owner != *owner {
-        return Err(ChillError::TokenHasAnotherOwner.into());
+        return Err(ChillProgramError::TokenHasAnotherOwner.into());
     }
     if token_account.mint != *mint {
-        return Err(ChillError::TokenHasAnotherMint.into());
+        return Err(ChillProgramError::TokenHasAnotherMint.into());
     }
 
     Ok(())
@@ -55,7 +55,7 @@ pub fn recipients(config: &Config, recipients_token_accounts: &[AccountInfo]) ->
     for recipient in recipients_token_accounts {
         let recipient_token_account = Account::unpack(&recipient.data.borrow())?;
         if recipient_token_account.mint != config.mint {
-            return Err(ChillError::WrongRecipientsList.into());
+            return Err(ChillProgramError::WrongRecipientsList.into());
         }
 
         if !config
@@ -63,7 +63,7 @@ pub fn recipients(config: &Config, recipients_token_accounts: &[AccountInfo]) ->
             .iter()
             .any(|r| r.address == recipient_token_account.owner)
         {
-            return Err(ChillError::WrongRecipientsList.into());
+            return Err(ChillProgramError::WrongRecipientsList.into());
         }
     }
 

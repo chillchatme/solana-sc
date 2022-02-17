@@ -1,4 +1,5 @@
-use crate::{error::ChillError, processor};
+use crate::processor;
+use chill_api::error::ChillProgramError;
 use solana_program::{
     account_info::AccountInfo, entrypoint, entrypoint::ProgramResult,
     program_error::PrintProgramError, pubkey::Pubkey,
@@ -12,7 +13,7 @@ pub fn process_instruction(
     data: &[u8],
 ) -> ProgramResult {
     if let Err(error) = processor::process_instruction(program_id, accounts, data) {
-        error.print::<ChillError>();
+        error.print::<ChillProgramError>();
         return Err(error);
     }
 

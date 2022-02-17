@@ -7,28 +7,52 @@ use solana_program::{
 use thiserror::Error;
 
 #[derive(Clone, Debug, Eq, Error, FromPrimitive, PartialEq)]
-pub enum ChillApiError {
+pub enum ChillProgramError {
+    #[error("Account is already initialized")]
+    AccountAlreadyInitialized,
+
+    #[error("Wrong authority")]
+    WrongAuthority,
+
+    #[error("Wrong recipients list")]
+    WrongRecipientsList,
+
+    #[error("Config has wrong pubkey")]
+    ConfigHasWrongPubkey,
+
+    #[error("Config is already initialized")]
+    ConfigAlreadyInitialized,
+
     #[error("Sum of all recipient shares must equal 100")]
     InvalidShares,
 
     #[error("Exceeded the maximum number of recipients")]
     MaximumRecipientsNumberExceeded,
+
+    #[error("Mint has another authority")]
+    MintHasAnotherAuthority,
+
+    #[error("Token account has another mint")]
+    TokenHasAnotherMint,
+
+    #[error("Token account has another owner")]
+    TokenHasAnotherOwner,
 }
 
-impl PrintProgramError for ChillApiError {
+impl PrintProgramError for ChillProgramError {
     fn print<E>(&self) {
         msg!(&self.to_string());
     }
 }
 
-impl From<ChillApiError> for ProgramError {
-    fn from(e: ChillApiError) -> Self {
-        ProgramError::Custom(10_000 + e as u32)
+impl From<ChillProgramError> for ProgramError {
+    fn from(e: ChillProgramError) -> Self {
+        ProgramError::Custom(e as u32)
     }
 }
 
-impl<T> DecodeError<T> for ChillApiError {
+impl<T> DecodeError<T> for ChillProgramError {
     fn type_of() -> &'static str {
-        "ChillApiError"
+        "ChillProgramError"
     }
 }
