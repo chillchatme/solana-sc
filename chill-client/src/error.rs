@@ -24,6 +24,9 @@ pub enum CustomClientError {
 
     #[error("Data cannot be parsed as config")]
     ConfigDataError,
+
+    #[error("Config account not found. Initialize it with \"initialize\" command")]
+    ConfigNotFound,
 }
 
 impl From<RpcClientError> for ClientError {

@@ -2,6 +2,7 @@ use crate::{
     cli::{Cli, CliCommand},
     error::{AppError, CliError, Result},
 };
+use chill_api::state::{Config, Fees};
 use chill_client::client::Client;
 use colored::Colorize;
 use solana_sdk::{
@@ -127,12 +128,9 @@ impl App<'_> {
         }
     }
 
-    fn get_mint(&self, owner: Pubkey) -> Result<Pubkey> {
+    fn get_mint(&self) -> Result<Pubkey> {
         match self.cli.mint()? {
-            Some(mint) => {
-                self.assert_mint_owner(mint, owner)?;
-                Ok(mint)
-            }
+            Some(mint) => Ok(mint),
             None => Err(CliError::MintNotSpecified.into()),
         }
     }
@@ -178,6 +176,48 @@ impl App<'_> {
         Ok(())
     }
 
+    fn print_info(&self, program_id: Pubkey, mint: Pubkey) -> Result<()> {
+        let config = self.client.config(program_id, mint)?;
+        let mint_account = self.client.mint_account(mint)?;
+
+        println!(
+            "{0} {1}",
+            "Authority:".green().bold(),
+            mint_account.mint_authority.unwrap()
+        );
+
+        let fees = config.fees.to_ui(mint_account.decimals);
+        println!("\n{0}", "======= MINT FEES =======".cyan().bold());
+        println!("{0:>10} {1}", "Character:".cyan(), fees.character);
+        println!("{0:>10} {1}", "Pet:".cyan(), fees.pet);
+        println!("{0:>10} {1}", "Emote:".cyan(), fees.emote);
+        println!("{0:>10} {1}", "Tileset:".cyan(), fees.tileset);
+        println!("{0:>10} {1}", "Item:".cyan(), fees.item);
+
+        let recipients = config.recipients;
+        if !recipients.is_empty() {
+            println!("\n{0}", "======= RECIPIENTS =======".bright_blue().bold());
+            let recipients_info = recipients
+                .iter()
+                .map(|r| {
+                    format!(
+                        "{0} {1}\n{2} {3}%\n{4} {5}%\n\n",
+                        "Address:".bright_blue(),
+                        r.address,
+                        "Mint share:".bright_blue(),
+                        r.mint_share,
+                        "Transaction share:".bright_blue(),
+                        r.transaction_share
+                    )
+                })
+                .collect::<String>();
+
+            println!("{}", recipients_info.trim());
+        }
+
+        Ok(())
+    }
+
     fn process_mint(&self) -> Result<()> {
         let owner = self.get_or_create_owner()?;
         self.try_to_airdrop(owner.pubkey())?;
@@ -193,30 +233,35 @@ impl App<'_> {
         self.print_balance(owner.pubkey(), mint)
     }
 
+    fn process_print_info(&self) -> Result<()> {
+        let mint = self.get_mint()?;
+        let program_id = self.cli.program_id();
+        self.print_info(program_id, mint)
+    }
+
     fn process_print_balance(&self) -> Result<()> {
         let owner = self.get_owner_pubkey()?;
-        let mint = self.cli.mint()?;
-        match mint {
-            Some(mint) => self.print_balance(owner, mint),
-            None => Err(CliError::MintNotSpecified.into()),
-        }
+        let mint = self.get_mint()?;
+        self.print_balance(owner, mint)
     }
 
     fn process_transfer(&self) -> Result<()> {
         let owner = self.get_owner()?;
-        let mint = self.get_mint(owner.pubkey())?;
+        let mint = self.get_mint()?;
+        self.assert_mint_owner(mint, owner.pubkey())?;
+
         let ui_amount = self.cli.ui_amount();
-        let receiver = self.cli.receiver();
+        let recipient = self.cli.recipient();
 
         if ui_amount == 0.0 {
             return Err(CliError::TransferZeroTokens.into());
         }
 
-        let receiver_token_account = match self.client.find_token_account(receiver, mint)? {
+        let recipient_token_account = match self.client.find_token_account(recipient, mint)? {
             Some(token_account) => token_account,
             None => self
                 .client
-                .create_token_account(owner.as_ref(), receiver, mint)?,
+                .create_token_account(owner.as_ref(), recipient, mint)?,
         };
 
         let current_balance = self.client.ui_token_balance(owner.pubkey(), mint)?;
@@ -230,16 +275,37 @@ impl App<'_> {
 
         let signature =
             self.client
-                .transfer_tokens(owner.as_ref(), mint, receiver_token_account, amount)?;
+                .transfer_tokens(owner.as_ref(), mint, recipient_token_account, amount)?;
 
         println!("{} {}", "Signature:".cyan(), signature);
         self.print_balance(owner.pubkey(), mint)
     }
 
+    pub fn initialize(&self) -> Result<()> {
+        let owner = self.get_owner()?;
+        let mint = self.get_mint()?;
+        self.assert_mint_owner(mint, owner.pubkey())?;
+
+        let ui_fees = self.cli.fees();
+        let program_id = self.cli.program_id();
+
+        let recipients = self.cli.multiple_recipients()?;
+        Config::check_recipients(&recipients)?;
+
+        let mint_account = self.client.mint_account(mint)?;
+        let fees = Fees::from_ui(ui_fees, mint_account.decimals);
+
+        self.client
+            .initialize(program_id, owner.as_ref(), mint, fees, recipients)?;
+        self.print_info(program_id, mint)
+    }
+
     pub fn run(&self) {
         let result = match self.cli.command() {
-            CliCommand::Mint => self.process_mint(),
             CliCommand::Balance => self.process_print_balance(),
+            CliCommand::Info => self.process_print_info(),
+            CliCommand::Initialize => self.initialize(),
+            CliCommand::Mint => self.process_mint(),
             CliCommand::Transfer => self.process_transfer(),
         };
 

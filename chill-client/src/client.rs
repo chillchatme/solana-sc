@@ -133,14 +133,14 @@ impl Client {
         &self,
         owner: &dyn Signer,
         mint: Pubkey,
-        receiver_token_account: Pubkey,
+        recipient_token_account: Pubkey,
         amount: u64,
     ) -> Result<Signature> {
         let owner_token_pubkey = self.associated_token_address(owner.pubkey(), mint);
         let ix = spl_token::instruction::transfer(
             &spl_token::ID,
             &owner_token_pubkey,
-            &receiver_token_account,
+            &recipient_token_account,
             &owner.pubkey(),
             &[],
             amount,
@@ -208,7 +208,11 @@ impl Client {
 
     pub fn config(&self, program_id: Pubkey, mint: Pubkey) -> Result<Config> {
         let config_pubkey = pda::config(&mint, &program_id).0;
-        let config_data = self.client.get_account_data(&config_pubkey)?;
+        let config_data = self
+            .client
+            .get_account_data(&config_pubkey)
+            .map_err(|_| CustomClientError::ConfigNotFound)?;
+
         Config::unpack(&config_data).map_err(|_| CustomClientError::ConfigDataError.into())
     }
 

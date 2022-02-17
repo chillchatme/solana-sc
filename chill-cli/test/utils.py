@@ -11,7 +11,7 @@ DEFAULT_MINT_PATH = Path.cwd() / 'mint.devnet.pubkey'
 
 KEYPAIRS = PROJECT_DIR / 'localnet'
 OWNER_PATH = KEYPAIRS / 'owner.json'
-RECEIVER_PATH = KEYPAIRS / 'receiver.json'
+RECIPIENT_PATH = KEYPAIRS / 'recipient.json'
 TESTMINT_PATH = KEYPAIRS / 'mint.pubkey.localnet'
 
 
@@ -42,8 +42,8 @@ def owner():
     return get_keypair(OWNER_PATH).public_key
 
 
-def receiver_pubkey():
-    return get_keypair(RECEIVER_PATH).public_key
+def recipient_pubkey():
+    return get_keypair(RECIPIENT_PATH).public_key
 
 
 def testmint_pubkey():

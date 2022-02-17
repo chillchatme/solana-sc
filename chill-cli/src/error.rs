@@ -1,3 +1,4 @@
+use chill_api::error::ChillApiError;
 use chill_client::error::ClientError;
 use colored::Colorize;
 use solana_client::{
@@ -46,6 +47,9 @@ pub enum CliError {
 
     #[error("Cannot transfer zero tokens")]
     TransferZeroTokens,
+
+    #[error("Specify shares for all recipients")]
+    NotEnoughShares,
 }
 
 impl std::error::Error for AppError {}
@@ -70,6 +74,12 @@ impl From<std::io::Error> for AppError {
 
 impl From<ParsePubkeyError> for AppError {
     fn from(error: ParsePubkeyError) -> Self {
+        AppError::InternalError(error.into())
+    }
+}
+
+impl From<ChillApiError> for AppError {
+    fn from(error: ChillApiError) -> Self {
         AppError::InternalError(error.into())
     }
 }

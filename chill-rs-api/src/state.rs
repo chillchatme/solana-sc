@@ -6,6 +6,7 @@ use solana_program::{
     program_pack::{IsInitialized, Pack, Sealed},
     pubkey::Pubkey,
 };
+use spl_token::{amount_to_ui_amount, ui_amount_to_amount};
 
 pub const AUTHORITY_SHARE: u8 = 2;
 
@@ -35,6 +36,16 @@ impl NftType {
 }
 
 #[repr(C)]
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UiFees {
+    pub character: f64,
+    pub pet: f64,
+    pub emote: f64,
+    pub tileset: f64,
+    pub item: f64,
+}
+
+#[repr(C)]
 #[derive(Clone, Debug, Default, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct Fees {
     pub character: u64,
@@ -46,6 +57,26 @@ pub struct Fees {
 
 impl Fees {
     pub const LEN: usize = 8 * 5;
+
+    pub fn from_ui(ui_fees: UiFees, decimals: u8) -> Fees {
+        Fees {
+            character: ui_amount_to_amount(ui_fees.character, decimals),
+            pet: ui_amount_to_amount(ui_fees.pet, decimals),
+            emote: ui_amount_to_amount(ui_fees.emote, decimals),
+            tileset: ui_amount_to_amount(ui_fees.tileset, decimals),
+            item: ui_amount_to_amount(ui_fees.item, decimals),
+        }
+    }
+
+    pub fn to_ui(&self, decimals: u8) -> UiFees {
+        UiFees {
+            character: amount_to_ui_amount(self.character, decimals),
+            pet: amount_to_ui_amount(self.pet, decimals),
+            emote: amount_to_ui_amount(self.emote, decimals),
+            tileset: amount_to_ui_amount(self.tileset, decimals),
+            item: amount_to_ui_amount(self.item, decimals),
+        }
+    }
 
     pub fn of(&self, nft_type: NftType) -> u64 {
         match nft_type {
@@ -108,11 +139,7 @@ impl Config {
 
     pub const MAX_RECIPIENT_NUMBER: usize = 3;
 
-    pub fn new(
-        mint: &Pubkey,
-        fees: Fees,
-        recipients: Vec<Recipient>,
-    ) -> Result<Self, ProgramError> {
+    pub fn check_recipients(recipients: &Vec<Recipient>) -> Result<(), ChillApiError> {
         if recipients.len() > Self::MAX_RECIPIENT_NUMBER {
             return Err(ChillApiError::MaximumRecipientsNumberExceeded.into());
         }
@@ -124,6 +151,16 @@ impl Config {
                 return Err(ChillApiError::InvalidShares.into());
             }
         }
+
+        Ok(())
+    }
+
+    pub fn new(
+        mint: &Pubkey,
+        fees: Fees,
+        recipients: Vec<Recipient>,
+    ) -> Result<Self, ChillApiError> {
+        Self::check_recipients(&recipients)?;
 
         Ok(Self {
             state_type: StateType::Config,
