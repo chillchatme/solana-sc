@@ -65,15 +65,15 @@ pub fn process_mint_nft(
     let token_program = next_account_info(accounts_iter)?;
     let metadata_program = next_account_info(accounts_iter)?;
 
-    assert::owner(config, program_id)?;
-    assert::config_pubkey(config.key, chill_mint.key, program_id)?;
-    assert::chill_metadata_pubkey(chill_metadata.key, nft_mint.key, program_id)?;
+    assert::owned_by(config, program_id)?;
+    assert::is_config_pubkey(config.key, chill_mint.key, program_id)?;
+    assert::is_chill_metadata_pubkey(chill_metadata.key, nft_mint.key, program_id)?;
 
     let config = Config::unpack(&config.data.borrow())?;
     let recipients_token_accounts = next_account_infos(accounts_iter, config.recipients.len())?;
 
-    assert::recipients(&config, recipients_token_accounts)?;
-    assert::token_account(chill_token_account, user.key, chill_mint.key)?;
+    assert::recipients_match(&config, recipients_token_accounts)?;
+    assert::is_token_account(chill_token_account, user.key, chill_mint.key)?;
 
     utils::transfer_chill(
         user,

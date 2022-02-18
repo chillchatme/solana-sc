@@ -6,14 +6,14 @@ use solana_program::{
 };
 use spl_token::state::{Account, Mint};
 
-pub fn owner(account: &AccountInfo, program_id: &Pubkey) -> ProgramResult {
+pub fn owned_by(account: &AccountInfo, program_id: &Pubkey) -> ProgramResult {
     if account.owner != program_id {
         return Err(ProgramError::IllegalOwner);
     }
     Ok(())
 }
 
-pub fn chill_metadata_pubkey(
+pub fn is_chill_metadata_pubkey(
     chill_metadata: &Pubkey,
     nft_mint: &Pubkey,
     program_id: &Pubkey,
@@ -25,7 +25,7 @@ pub fn chill_metadata_pubkey(
     Ok(())
 }
 
-pub fn config_pubkey(config: &Pubkey, mint: &Pubkey, program_id: &Pubkey) -> ProgramResult {
+pub fn is_config_pubkey(config: &Pubkey, mint: &Pubkey, program_id: &Pubkey) -> ProgramResult {
     let config_pubkey = pda::config(mint, program_id).0;
     if *config != config_pubkey {
         return Err(ChillProgramError::ConfigHasWrongPubkey.into());
@@ -34,12 +34,12 @@ pub fn config_pubkey(config: &Pubkey, mint: &Pubkey, program_id: &Pubkey) -> Pro
 }
 
 pub fn is_config(config: &AccountInfo) -> ProgramResult {
-    assert::owner(config, &chill_api::ID)?;
+    assert::owned_by(config, &chill_api::ID)?;
     Config::unpack(&config.data.borrow()).map(|_| ())
 }
 
-pub fn mint_authority(mint: &AccountInfo, authority: &Pubkey) -> ProgramResult {
-    assert::owner(mint, &spl_token::ID)?;
+pub fn is_mint_authority(mint: &AccountInfo, authority: &Pubkey) -> ProgramResult {
+    assert::owned_by(mint, &spl_token::ID)?;
 
     let mint_account = Mint::unpack(&mint.data.borrow())?;
     if mint_account.mint_authority != COption::Some(*authority) {
@@ -49,8 +49,8 @@ pub fn mint_authority(mint: &AccountInfo, authority: &Pubkey) -> ProgramResult {
     Ok(())
 }
 
-pub fn token_account(token: &AccountInfo, owner: &Pubkey, mint: &Pubkey) -> ProgramResult {
-    assert::owner(token, &spl_token::ID)?;
+pub fn is_token_account(token: &AccountInfo, owner: &Pubkey, mint: &Pubkey) -> ProgramResult {
+    assert::owned_by(token, &spl_token::ID)?;
 
     let token_account = Account::unpack(&token.data.borrow())?;
     if token_account.owner != *owner {
@@ -63,7 +63,10 @@ pub fn token_account(token: &AccountInfo, owner: &Pubkey, mint: &Pubkey) -> Prog
     Ok(())
 }
 
-pub fn recipients(config: &Config, recipients_token_accounts: &[AccountInfo]) -> ProgramResult {
+pub fn recipients_match(
+    config: &Config,
+    recipients_token_accounts: &[AccountInfo],
+) -> ProgramResult {
     for recipient in recipients_token_accounts {
         let recipient_token_account = Account::unpack(&recipient.data.borrow())?;
         if recipient_token_account.mint != config.mint {

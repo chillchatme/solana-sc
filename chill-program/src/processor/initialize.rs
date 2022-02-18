@@ -29,8 +29,8 @@ pub fn process_initialize(
     let mint = next_account_info(accounts_iter)?;
     let system_program = next_account_info(accounts_iter)?;
 
-    assert::mint_authority(mint, authority.key)?;
-    assert::config_pubkey(config.key, mint.key, program_id)?;
+    assert::is_mint_authority(mint, authority.key)?;
+    assert::is_config_pubkey(config.key, mint.key, program_id)?;
 
     if !config.data_is_empty() {
         return Err(ChillProgramError::ConfigAlreadyInitialized.into());
