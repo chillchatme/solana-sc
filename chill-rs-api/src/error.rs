@@ -17,6 +17,9 @@ pub enum ChillProgramError {
     #[error("Wrong recipients list")]
     WrongRecipientsList,
 
+    #[error("Chill metadata account has wrong pubkey")]
+    ChillMetadataWrongPubkey,
+
     #[error("Config has wrong pubkey")]
     ConfigHasWrongPubkey,
 

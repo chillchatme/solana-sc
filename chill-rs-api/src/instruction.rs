@@ -51,15 +51,16 @@ pub enum ChillInstruction {
     /// 6. [writable] NFT Token account
     /// 7. [writable] NFT Metadata account
     /// 8. [writable] NFT MasterEdition account
-    /// 9. [] System program
-    /// 10. [] Rent program
-    /// 11. [] Spl token program
-    /// 12. [] Token metadata program
+    /// 9. [writable] NFT Chill Metadata account
+    /// 10. [] System program
+    /// 11. [] Rent program
+    /// 12. [] Spl token program
+    /// 13. [] Token metadata program
     ///
     /// Optional
     ///
-    /// 13. [writable] Recipient's Chill token account
-    /// 14. ...
+    /// 14. [writable] Recipient's Chill token account
+    /// 15. ...
     MintNft(MintNftArgs),
 }
 
@@ -97,6 +98,7 @@ pub fn mint_nft(
     let config = pda::config(&mint, &program_id).0;
     let metadata = pda::metadata(&nft_mint);
     let master_edition = pda::master_edition(&nft_mint);
+    let chill_metadata = pda::chill_metadata(&nft_mint, &program_id).0;
 
     let mut accounts = vec![
         AccountMeta::new_readonly(authority, true),
@@ -108,6 +110,7 @@ pub fn mint_nft(
         AccountMeta::new(nft_token, false),
         AccountMeta::new(metadata, false),
         AccountMeta::new(master_edition, false),
+        AccountMeta::new(chill_metadata, false),
         AccountMeta::new_readonly(system_program::ID, false),
         AccountMeta::new_readonly(rent::ID, false),
         AccountMeta::new_readonly(spl_token::ID, false),

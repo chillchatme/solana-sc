@@ -1,15 +1,47 @@
 use crate::utils::{self, assert, nft, TokenBuilder};
 use chill_api::{
     instruction::MintNftArgs,
-    state::{Config, AUTHORITY_SHARE},
+    pda::{self, CHILL_METADATA_SEED},
+    state::{ChillNftMetadata, Config, AUTHORITY_SHARE},
 };
 use mpl_token_metadata::state::Creator;
 use solana_program::{
     account_info::{next_account_info, next_account_infos, AccountInfo},
     entrypoint::ProgramResult,
+    program::invoke_signed,
     program_pack::Pack,
     pubkey::Pubkey,
+    rent::Rent,
+    system_instruction,
+    sysvar::Sysvar,
 };
+
+pub fn initialize_chill_metadata<'info>(
+    chill_metadata: &AccountInfo<'info>,
+    user: &AccountInfo<'info>,
+    system_program: &AccountInfo<'info>,
+    nft_mint: &Pubkey,
+    program_id: &Pubkey,
+) -> ProgramResult {
+    let rent = Rent::get()?;
+    let lamports = rent.minimum_balance(ChillNftMetadata::LEN);
+    let (chill_metadata_pubkey, bump) = pda::chill_metadata(nft_mint, program_id);
+    let seeds = &[CHILL_METADATA_SEED.as_bytes(), nft_mint.as_ref(), &[bump]];
+
+    let ix = system_instruction::create_account(
+        user.key,
+        &chill_metadata_pubkey,
+        lamports,
+        ChillNftMetadata::LEN.try_into().unwrap(),
+        program_id,
+    );
+
+    invoke_signed(
+        &ix,
+        &[user.clone(), chill_metadata.clone(), system_program.clone()],
+        &[seeds],
+    )
+}
 
 pub fn process_mint_nft(
     program_id: &Pubkey,
@@ -27,6 +59,7 @@ pub fn process_mint_nft(
     let nft_token_account = next_account_info(accounts_iter)?;
     let metadata = next_account_info(accounts_iter)?;
     let master_edition = next_account_info(accounts_iter)?;
+    let chill_metadata = next_account_info(accounts_iter)?;
     let system_program = next_account_info(accounts_iter)?;
     let rent_program = next_account_info(accounts_iter)?;
     let token_program = next_account_info(accounts_iter)?;
@@ -34,6 +67,7 @@ pub fn process_mint_nft(
 
     assert::owner(config, program_id)?;
     assert::config_pubkey(config.key, chill_mint.key, program_id)?;
+    assert::chill_metadata_pubkey(chill_metadata.key, nft_mint.key, program_id)?;
 
     let config = Config::unpack(&config.data.borrow())?;
     let recipients_token_accounts = next_account_infos(accounts_iter, config.recipients.len())?;
@@ -100,6 +134,20 @@ pub fn process_mint_nft(
         system_program,
         rent_program,
         metadata_program,
+    )?;
+
+    initialize_chill_metadata(
+        chill_metadata,
+        user,
+        system_program,
+        nft_mint.key,
+        program_id,
+    )?;
+
+    let chill_metadata_account = ChillNftMetadata::new(args.nft_type);
+    ChillNftMetadata::pack(
+        chill_metadata_account,
+        &mut chill_metadata.data.borrow_mut(),
     )?;
 
     if authority.key != user.key {

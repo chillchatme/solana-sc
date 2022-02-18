@@ -28,8 +28,14 @@ pub enum CustomClientError {
     #[error("Token account '{0}' is not initialized")]
     TokenNotInitialized(Pubkey),
 
+    #[error("Data cannot be parsed as chill metadata")]
+    ChillMetadataDataError,
+
     #[error("Data cannot be parsed as config")]
     ConfigDataError,
+
+    #[error("Chill metadata account not found")]
+    ChillMetadataNotFound,
 
     #[error("Config account not found. Initialize it with \"initialize\" command")]
     ConfigNotFound,

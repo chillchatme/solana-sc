@@ -40,7 +40,6 @@ pub fn process_initialize(
     let lamports = rent.minimum_balance(Config::LEN);
 
     let (config_pubkey, bump) = pda::config(mint.key, program_id);
-    let config_account = Config::new(mint.key, args.fees, args.recipients)?;
     let seeds = &[CONFIG_SEED.as_bytes(), mint.key.as_ref(), &[bump]];
 
     invoke_signed(
@@ -55,5 +54,6 @@ pub fn process_initialize(
         &[seeds],
     )?;
 
+    let config_account = Config::new(mint.key, args.fees, args.recipients)?;
     Config::pack(config_account, &mut config.data.borrow_mut())
 }

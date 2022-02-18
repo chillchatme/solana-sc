@@ -13,9 +13,21 @@ pub fn owner(account: &AccountInfo, program_id: &Pubkey) -> ProgramResult {
     Ok(())
 }
 
+pub fn chill_metadata_pubkey(
+    chill_metadata: &Pubkey,
+    nft_mint: &Pubkey,
+    program_id: &Pubkey,
+) -> ProgramResult {
+    let chill_metadata_pubkey = pda::chill_metadata(nft_mint, program_id).0;
+    if *chill_metadata != chill_metadata_pubkey {
+        return Err(ChillProgramError::ChillMetadataWrongPubkey.into());
+    }
+    Ok(())
+}
+
 pub fn config_pubkey(config: &Pubkey, mint: &Pubkey, program_id: &Pubkey) -> ProgramResult {
-    let config_pda = pda::config(mint, program_id).0;
-    if *config != config_pda {
+    let config_pubkey = pda::config(mint, program_id).0;
+    if *config != config_pubkey {
         return Err(ChillProgramError::ConfigHasWrongPubkey.into());
     }
     Ok(())

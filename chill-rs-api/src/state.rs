@@ -15,6 +15,7 @@ pub const AUTHORITY_SHARE: u8 = 2;
 pub enum StateType {
     Uninitialized,
     Config,
+    ChillNftMetadata,
 }
 
 impl StateType {
@@ -34,7 +35,6 @@ pub enum NftType {
 impl NftType {
     pub const LEN: usize = 1;
 }
-
 impl TryFrom<&str> for NftType {
     type Error = String;
 
@@ -125,11 +125,25 @@ pub struct Config {
     pub recipients: Vec<Recipient>,
 }
 
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+pub struct ChillNftMetadata {
+    state_type: StateType,
+    pub nft_type: NftType,
+}
+
 impl Sealed for Config {}
+impl Sealed for ChillNftMetadata {}
 
 impl IsInitialized for Config {
     fn is_initialized(&self) -> bool {
         self.state_type == StateType::Config
+    }
+}
+
+impl IsInitialized for ChillNftMetadata {
+    fn is_initialized(&self) -> bool {
+        self.state_type == StateType::ChillNftMetadata
     }
 }
 
@@ -139,6 +153,18 @@ impl Pack for Config {
         + Fees::LEN
         + Self::VECTOR_PREFIX
         + Self::MAX_RECIPIENT_NUMBER * Recipient::LEN;
+
+    fn pack_into_slice(&self, mut dst: &mut [u8]) {
+        self.serialize(&mut dst).unwrap();
+    }
+
+    fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
+        try_from_slice_unchecked(src).map_err(|e| e.into())
+    }
+}
+
+impl Pack for ChillNftMetadata {
+    const LEN: usize = StateType::LEN + NftType::LEN;
 
     fn pack_into_slice(&self, mut dst: &mut [u8]) {
         self.serialize(&mut dst).unwrap();
@@ -183,6 +209,15 @@ impl Config {
             fees,
             recipients,
         })
+    }
+}
+
+impl ChillNftMetadata {
+    pub fn new(nft_type: NftType) -> Self {
+        Self {
+            state_type: StateType::ChillNftMetadata,
+            nft_type,
+        }
     }
 }
 

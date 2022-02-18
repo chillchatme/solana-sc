@@ -94,6 +94,9 @@ fn assert_metadata(
     assert_eq!(data.uri.trim_end_matches(zero), mint_args.url);
     assert_eq!(data.seller_fee_basis_points, mint_args.fees);
     assert_eq!(data.creators, Some(creators));
+
+    let chill_metadata = client.chill_metadata(chill_api::ID, nft_mint).unwrap();
+    assert_eq!(chill_metadata.nft_type, mint_args.nft_type);
 }
 
 fn create_token_account(

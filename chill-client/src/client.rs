@@ -3,7 +3,7 @@ use chill_api::{
     self,
     instruction::{self, InitializeArgs, MintNftArgs},
     pda,
-    state::{Config, Fees, Recipient, AUTHORITY_SHARE},
+    state::{ChillNftMetadata, Config, Fees, Recipient, AUTHORITY_SHARE},
 };
 use mpl_token_metadata::{
     state::{Creator, DataV2, Key, Metadata, TokenStandard, MAX_METADATA_LEN},
@@ -112,6 +112,17 @@ impl Client {
             .map_err(|_| CustomClientError::ConfigNotFound)?;
 
         Config::unpack(&config_data).map_err(|_| CustomClientError::ConfigDataError.into())
+    }
+
+    pub fn chill_metadata(&self, program_id: Pubkey, nft_mint: Pubkey) -> Result<ChillNftMetadata> {
+        let chill_metadata_pubkey = pda::chill_metadata(&nft_mint, &program_id).0;
+        let chill_metadata_data = self
+            .client
+            .get_account_data(&chill_metadata_pubkey)
+            .map_err(|_| CustomClientError::ChillMetadataNotFound)?;
+
+        ChillNftMetadata::unpack(&chill_metadata_data)
+            .map_err(|_| CustomClientError::ChillMetadataDataError.into())
     }
 
     //
