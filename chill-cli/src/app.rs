@@ -52,7 +52,7 @@ impl App<'_> {
                 .map_err(|e| CliError::CannotParseFile(keypair_filename, e.to_string()))?;
             Ok(Box::new(keypair))
         } else {
-            Err(CliError::OwnerNotFound.into())
+            Err(CliError::AuthorityNotFound.into())
         }
     }
 
@@ -72,36 +72,36 @@ impl App<'_> {
         Ok(Box::new(new_keypair))
     }
 
-    fn try_to_airdrop(&self, owner: Pubkey) -> Result<()> {
-        if self.client.balance(owner)? == 0 {
+    fn try_to_airdrop(&self, address: Pubkey) -> Result<()> {
+        if self.client.balance(address)? == 0 {
             if self.cli.mainnet() {
                 println!("{}", "You have to top up your balance".red());
                 exit(0);
             } else {
-                self.client.airdrop(owner, sol_to_lamports(1.0))?;
+                self.client.airdrop(address, sol_to_lamports(1.0))?;
             }
         }
 
         Ok(())
     }
 
-    fn get_owner_pubkey(&self) -> Result<Pubkey> {
-        match self.cli.owner_pubkey() {
-            Some(owner) => Ok(owner),
+    fn get_authority_pubkey(&self) -> Result<Pubkey> {
+        match self.cli.authority_pubkey() {
+            Some(authority) => Ok(authority),
             None => Ok(self.get_default_keypair()?.pubkey()),
         }
     }
 
-    fn get_owner(&self) -> Result<Box<dyn Signer>> {
-        match self.cli.owner()? {
-            Some(owner) => Ok(owner),
+    fn get_authority(&self) -> Result<Box<dyn Signer>> {
+        match self.cli.authority()? {
+            Some(authority) => Ok(authority),
             None => self.get_default_keypair(),
         }
     }
 
-    fn get_or_create_owner(&self) -> Result<Box<dyn Signer>> {
-        match self.cli.owner()? {
-            Some(owner) => Ok(owner),
+    fn get_or_create_authority(&self) -> Result<Box<dyn Signer>> {
+        match self.cli.authority()? {
+            Some(authority) => Ok(authority),
             None => self.get_or_create_default_keypair(),
         }
     }
@@ -119,10 +119,10 @@ impl App<'_> {
         Ok(())
     }
 
-    fn assert_mint_owner(&self, mint: Pubkey, owner: Pubkey) -> Result<()> {
+    fn assert_mint_authority(&self, mint: Pubkey, authority: Pubkey) -> Result<()> {
         let mint_account = self.client.mint_account(mint)?;
-        if mint_account.mint_authority != COption::Some(owner) {
-            Err(CliError::OwnerNotMatch(mint).into())
+        if mint_account.mint_authority != COption::Some(authority) {
+            Err(CliError::AuthorityNotMatch(mint).into())
         } else {
             Ok(())
         }
@@ -135,9 +135,9 @@ impl App<'_> {
         }
     }
 
-    fn get_or_create_mint(&self, owner: &dyn Signer, decimals: u8) -> Result<Pubkey> {
+    fn get_or_create_mint(&self, authority: &dyn Signer, decimals: u8) -> Result<Pubkey> {
         if let Some(mint) = self.cli.mint()? {
-            self.assert_mint_owner(mint, owner.pubkey())?;
+            self.assert_mint_authority(mint, authority.pubkey())?;
             return Ok(mint);
         }
 
@@ -149,7 +149,7 @@ impl App<'_> {
             return Err(CliError::MintFileExists(full_path_str.to_owned()).into());
         }
 
-        let mint = self.client.create_mint(owner, decimals)?;
+        let mint = self.client.create_mint(authority, decimals)?;
         println!("{0} {1}", "Mint:".cyan(), mint);
 
         self.save_mint(mint)?;
@@ -160,8 +160,8 @@ impl App<'_> {
         println!("{} {}", "Signature:".cyan(), signature);
     }
 
-    fn print_balance(&self, owner: Pubkey, mint: Pubkey) -> Result<()> {
-        let balance = self.client.ui_token_balance(owner, mint)?;
+    fn print_balance(&self, address: Pubkey, mint: Pubkey) -> Result<()> {
+        let balance = self.client.ui_token_balance(address, mint)?;
         println!("{} {} tokens", "Balance:".green().bold(), balance);
 
         Ok(())
@@ -210,29 +210,32 @@ impl App<'_> {
     }
 
     fn process_mint(&self) -> Result<()> {
-        let owner = self.get_or_create_owner()?;
-        self.try_to_airdrop(owner.pubkey())?;
+        let authority = self.get_or_create_authority()?;
+        self.try_to_airdrop(authority.pubkey())?;
 
         let decimals = self.cli.decimals();
-        let mint = self.get_or_create_mint(owner.as_ref(), decimals)?;
-        let token =
-            self.client
-                .get_or_create_token_account(owner.as_ref(), owner.pubkey(), mint)?;
+        let mint = self.get_or_create_mint(authority.as_ref(), decimals)?;
+        let token = self.client.get_or_create_token_account(
+            authority.as_ref(),
+            authority.pubkey(),
+            mint,
+        )?;
 
         let ui_amount = self.cli.ui_amount();
         let amount = spl_token::ui_amount_to_amount(ui_amount, decimals);
-        self.client.mint_to(owner.as_ref(), mint, token, amount)?;
+        self.client
+            .mint_to(authority.as_ref(), mint, token, amount)?;
 
-        self.print_balance(owner.pubkey(), mint)
+        self.print_balance(authority.pubkey(), mint)
     }
 
     fn process_mint_nft(&self) -> Result<()> {
-        let owner = self.get_owner()?;
+        let authority = self.get_authority()?;
 
         let recipient_signer = self.cli.recipient();
         let nft_recipient = match recipient_signer {
             Ok(Some(ref signer)) => signer,
-            _ => &owner,
+            _ => &authority,
         };
 
         let mint_chill = self.get_mint()?;
@@ -247,12 +250,12 @@ impl App<'_> {
 
         let (nft_mint, nft_token) = self
             .client
-            .create_mint_and_token_nft(owner.as_ref(), nft_recipient.as_ref())?;
+            .create_mint_and_token_nft(authority.as_ref(), nft_recipient.as_ref())?;
 
         println!("{0} {1}", "NFT Mint:".green(), nft_mint);
         let signature = self.client.mint_nft(
             program_id,
-            owner.as_ref(),
+            authority.as_ref(),
             nft_recipient.as_ref(),
             mint_chill,
             recipient_token_account,
@@ -272,7 +275,7 @@ impl App<'_> {
             println!("\n{} '{}'", "Transfer NFT to".green(), recipient_pubkey);
             let signature =
                 self.client
-                    .transfer_tokens(owner.as_ref(), nft_mint, recipient_pubkey, 1)?;
+                    .transfer_tokens(authority.as_ref(), nft_mint, recipient_pubkey, 1)?;
             self.print_signature(&signature);
         }
 
@@ -286,13 +289,13 @@ impl App<'_> {
     }
 
     fn process_print_balance(&self) -> Result<()> {
-        let owner = self.get_owner_pubkey()?;
+        let authority = self.get_authority_pubkey()?;
         let mint = self.get_mint()?;
-        self.print_balance(owner, mint)
+        self.print_balance(authority, mint)
     }
 
     fn process_transfer(&self) -> Result<()> {
-        let owner = self.get_owner()?;
+        let authority = self.get_authority()?;
         let mint = self.get_mint()?;
 
         let ui_amount = self.cli.ui_amount();
@@ -302,7 +305,7 @@ impl App<'_> {
             return Err(CliError::TransferZeroTokens.into());
         }
 
-        let current_balance = self.client.ui_token_balance(owner.pubkey(), mint)?;
+        let current_balance = self.client.ui_token_balance(authority.pubkey(), mint)?;
         if ui_amount > current_balance {
             return Err(CliError::InsufficientTokens(ui_amount, current_balance).into());
         }
@@ -313,16 +316,16 @@ impl App<'_> {
 
         let signature = self
             .client
-            .transfer_tokens(owner.as_ref(), mint, recipient, amount)?;
+            .transfer_tokens(authority.as_ref(), mint, recipient, amount)?;
 
         self.print_signature(&signature);
-        self.print_balance(owner.pubkey(), mint)
+        self.print_balance(authority.pubkey(), mint)
     }
 
     pub fn initialize(&self) -> Result<()> {
-        let owner = self.get_owner()?;
+        let authority = self.get_authority()?;
         let mint = self.get_mint()?;
-        self.assert_mint_owner(mint, owner.pubkey())?;
+        self.assert_mint_authority(mint, authority.pubkey())?;
 
         let ui_fees = self.cli.fees();
         let program_id = self.cli.program_id();
@@ -334,7 +337,7 @@ impl App<'_> {
         let fees = Fees::from_ui(ui_fees, mint_account.decimals);
 
         self.client
-            .initialize(program_id, owner.as_ref(), mint, fees, recipients)?;
+            .initialize(program_id, authority.as_ref(), mint, fees, recipients)?;
         self.print_info(program_id, mint)
     }
 

@@ -60,8 +60,8 @@ impl Client {
             .map_err(|e| e.into())
     }
 
-    pub fn balance(&self, owner: Pubkey) -> Result<u64> {
-        self.client.get_balance(&owner).map_err(|e| e.into())
+    pub fn balance(&self, address: Pubkey) -> Result<u64> {
+        self.client.get_balance(&address).map_err(|e| e.into())
     }
 
     //
@@ -120,7 +120,7 @@ impl Client {
 
     pub fn create_mint_and_token_nft(
         &self,
-        owner: &dyn Signer,
+        authority: &dyn Signer,
         recipient: &dyn Signer,
     ) -> Result<(Pubkey, Pubkey)> {
         let mint = Keypair::new();
@@ -139,7 +139,7 @@ impl Client {
             spl_instruction::initialize_mint(
                 &spl_token::ID,
                 &mint.pubkey(),
-                &owner.pubkey(),
+                &authority.pubkey(),
                 None,
                 0,
             )
@@ -153,24 +153,24 @@ impl Client {
                 &spl_token::ID,
                 &mint.pubkey(),
                 &token,
-                &owner.pubkey(),
+                &authority.pubkey(),
                 &[],
                 1,
             )
             .unwrap(),
         ];
 
-        self.run_transaction(ixs, recipient.pubkey(), &[&mint, recipient, owner])?;
+        self.run_transaction(ixs, recipient.pubkey(), &[&mint, recipient, authority])?;
         Ok((mint.pubkey(), token))
     }
 
-    pub fn create_mint(&self, owner: &dyn Signer, decimals: u8) -> Result<Pubkey> {
+    pub fn create_mint(&self, authority: &dyn Signer, decimals: u8) -> Result<Pubkey> {
         let mint = Keypair::new();
         let space = Mint::LEN;
         let lamports = self.client.get_minimum_balance_for_rent_exemption(space)?;
         let ixs = &[
             system_instruction::create_account(
-                &owner.pubkey(),
+                &authority.pubkey(),
                 &mint.pubkey(),
                 lamports,
                 space.try_into().unwrap(),
@@ -179,28 +179,34 @@ impl Client {
             spl_instruction::initialize_mint(
                 &spl_token::ID,
                 &mint.pubkey(),
-                &owner.pubkey(),
+                &authority.pubkey(),
                 None,
                 decimals,
             )
             .unwrap(),
         ];
-        self.run_transaction(ixs, owner.pubkey(), &[owner, &mint])?;
+        self.run_transaction(ixs, authority.pubkey(), &[authority, &mint])?;
         Ok(mint.pubkey())
     }
 
     pub fn mint_to(
         &self,
-        owner: &dyn Signer,
+        authority: &dyn Signer,
         mint: Pubkey,
         token: Pubkey,
         amount: u64,
     ) -> Result<()> {
-        let ix =
-            spl_instruction::mint_to(&spl_token::ID, &mint, &token, &owner.pubkey(), &[], amount)
-                .unwrap();
+        let ix = spl_instruction::mint_to(
+            &spl_token::ID,
+            &mint,
+            &token,
+            &authority.pubkey(),
+            &[],
+            amount,
+        )
+        .unwrap();
 
-        self.run_transaction(&[ix], owner.pubkey(), &[owner])?;
+        self.run_transaction(&[ix], authority.pubkey(), &[authority])?;
         Ok(())
     }
 
@@ -210,7 +216,7 @@ impl Client {
         owner: Pubkey,
         mint: Pubkey,
     ) -> Result<Pubkey> {
-        if let Some(found_token_pubkey) = self.find_token_account(owner, mint)? {
+        if let Some(found_token_pubkey) = self.find_token_address(owner, mint)? {
             return Ok(found_token_pubkey);
         }
 
@@ -220,7 +226,7 @@ impl Client {
         Ok(token_pubkey)
     }
 
-    pub fn find_token_account(&self, address: Pubkey, mint: Pubkey) -> Result<Option<Pubkey>> {
+    pub fn find_token_address(&self, address: Pubkey, mint: Pubkey) -> Result<Option<Pubkey>> {
         let filter = TokenAccountsFilter::Mint(mint);
         let token_accounts = self.client.get_token_accounts_by_owner(&address, filter)?;
         if token_accounts.is_empty() {
@@ -266,12 +272,12 @@ impl Client {
 
     pub fn transfer_tokens(
         &self,
-        owner: &dyn Signer,
+        authority: &dyn Signer,
         mint: Pubkey,
         recipient: Pubkey,
         amount: u64,
     ) -> Result<Signature> {
-        let current_balance = self.token_balance(owner.pubkey(), mint)?;
+        let current_balance = self.token_balance(authority.pubkey(), mint)?;
         if amount > current_balance {
             let decimals = self.mint_account(mint)?.decimals;
             let expected = amount_to_ui_amount(amount, decimals);
@@ -279,32 +285,35 @@ impl Client {
             return Err(CustomClientError::NotEnoughTokens(expected, found).into());
         }
 
-        let owner_token_pubkey = get_associated_token_address(&owner.pubkey(), &mint);
-        let recipient_token_account = self.get_or_create_token_account(owner, recipient, mint)?;
+        let authority_token_pubkey = get_associated_token_address(&authority.pubkey(), &mint);
+        let recipient_token_account =
+            self.get_or_create_token_account(authority, recipient, mint)?;
         let mut ixs = Vec::new();
 
-        if let Some(ix) = self.try_set_primary_sale_and_update_creators_ix(owner, mint, recipient) {
+        if let Some(ix) =
+            self.try_set_primary_sale_and_update_creators_ix(authority, mint, recipient)
+        {
             ixs.push(ix);
         }
 
         ixs.push(
             spl_token::instruction::transfer(
                 &spl_token::ID,
-                &owner_token_pubkey,
+                &authority_token_pubkey,
                 &recipient_token_account,
-                &owner.pubkey(),
+                &authority.pubkey(),
                 &[],
                 amount,
             )
             .unwrap(),
         );
 
-        self.run_transaction(&ixs, owner.pubkey(), &[owner])
+        self.run_transaction(&ixs, authority.pubkey(), &[authority])
     }
 
     fn try_set_primary_sale_and_update_creators_ix(
         &self,
-        owner: &dyn Signer,
+        authority: &dyn Signer,
         nft_mint: Pubkey,
         recipient: Pubkey,
     ) -> Option<Instruction> {
@@ -316,8 +325,8 @@ impl Client {
 
         let metadata = metadata_result.unwrap();
         if metadata.token_standard != Some(TokenStandard::NonFungible)
-            || owner.pubkey() == recipient
-            || metadata.update_authority != owner.pubkey()
+            || authority.pubkey() == recipient
+            || metadata.update_authority != authority.pubkey()
             || metadata.primary_sale_happened
         {
             return None;
@@ -325,7 +334,7 @@ impl Client {
 
         let creators = Some(vec![
             Creator {
-                address: owner.pubkey(),
+                address: authority.pubkey(),
                 verified: true,
                 share: AUTHORITY_SHARE,
             },
@@ -350,7 +359,7 @@ impl Client {
             mpl_token_metadata::instruction::update_metadata_accounts_v2(
                 mpl_token_metadata::ID,
                 pda::metadata(&nft_mint),
-                owner.pubkey(),
+                authority.pubkey(),
                 None,
                 Some(data),
                 Some(true),
@@ -366,21 +375,21 @@ impl Client {
     pub fn initialize(
         &self,
         program_id: Pubkey,
-        owner: &dyn Signer,
+        authority: &dyn Signer,
         mint: Pubkey,
         fees: Fees,
         recipients: Vec<Recipient>,
     ) -> Result<Signature> {
         let args = InitializeArgs { fees, recipients };
-        let ix = instruction::initialize(program_id, owner.pubkey(), mint, args);
-        self.run_transaction(&[ix], owner.pubkey(), &[owner])
+        let ix = instruction::initialize(program_id, authority.pubkey(), mint, args);
+        self.run_transaction(&[ix], authority.pubkey(), &[authority])
     }
 
     #[allow(clippy::too_many_arguments)]
     pub fn mint_nft(
         &self,
         program_id: Pubkey,
-        owner: &dyn Signer,
+        authority: &dyn Signer,
         user: &dyn Signer,
         mint_chill: Pubkey,
         user_token_account: Pubkey,
@@ -392,7 +401,7 @@ impl Client {
 
         let mut recipients_token_accounts = Vec::with_capacity(config.recipients.len());
         for recipient in config.recipients {
-            match self.find_token_account(recipient.address, mint_chill)? {
+            match self.find_token_address(recipient.address, mint_chill)? {
                 Some(token_address) => recipients_token_accounts.push(token_address),
                 None => {
                     let token_address =
@@ -404,7 +413,7 @@ impl Client {
 
         let ix = instruction::mint_nft(
             program_id,
-            owner.pubkey(),
+            authority.pubkey(),
             user.pubkey(),
             mint_chill,
             user_token_account,
@@ -414,7 +423,7 @@ impl Client {
             args,
         );
 
-        self.run_transaction(&[ix], user.pubkey(), &[owner, user])
+        self.run_transaction(&[ix], user.pubkey(), &[authority, user])
     }
 }
 
@@ -427,20 +436,22 @@ mod tests {
     #[test]
     fn transfer_updates_nft() {
         let client = Client::init("http://localhost:8899");
-        let owner = Keypair::new();
-        client.airdrop(owner.pubkey(), 1_000_000_000).unwrap();
+        let authority = Keypair::new();
+        client.airdrop(authority.pubkey(), 1_000_000_000).unwrap();
 
         let program_id = chill_api::ID;
-        let mint_chill = client.create_mint(&owner, 9).unwrap();
-        let (nft_mint, nft_token) = client.create_mint_and_token_nft(&owner, &owner).unwrap();
-        let owner_chill_account = client
-            .get_or_create_token_account(&owner, owner.pubkey(), mint_chill)
+        let mint_chill = client.create_mint(&authority, 9).unwrap();
+        let (nft_mint, nft_token) = client
+            .create_mint_and_token_nft(&authority, &authority)
+            .unwrap();
+        let authority_chill_account = client
+            .get_or_create_token_account(&authority, authority.pubkey(), mint_chill)
             .unwrap();
 
         let recipients = Vec::new();
         let fees = Fees::default();
         client
-            .initialize(program_id, &owner, mint_chill, fees, recipients)
+            .initialize(program_id, &authority, mint_chill, fees, recipients)
             .unwrap();
 
         let args = MintNftArgs {
@@ -454,35 +465,35 @@ mod tests {
         client
             .mint_nft(
                 program_id,
-                &owner,
-                &owner,
+                &authority,
+                &authority,
                 mint_chill,
-                owner_chill_account,
+                authority_chill_account,
                 nft_mint,
                 nft_token,
                 args,
             )
             .unwrap();
 
-        let owner_token_pubkey = get_associated_token_address(&owner.pubkey(), &nft_mint);
-        let owner_token_account = client.token_account(owner_token_pubkey).unwrap();
-        assert_eq!(owner_token_account.amount, 1);
+        let authority_token_pubkey = get_associated_token_address(&authority.pubkey(), &nft_mint);
+        let authority_token_account = client.token_account(authority_token_pubkey).unwrap();
+        assert_eq!(authority_token_account.amount, 1);
 
         let metadata = client.metadata_account(nft_mint).unwrap();
         let creators = metadata.data.creators.unwrap();
         assert!(!metadata.primary_sale_happened);
         assert_eq!(creators.len(), 1);
-        assert_eq!(creators[0].address, owner.pubkey());
+        assert_eq!(creators[0].address, authority.pubkey());
 
         let recipient = Keypair::new();
         client.airdrop(recipient.pubkey(), 1_000_000_000).unwrap();
 
         client
-            .transfer_tokens(&owner, nft_mint, recipient.pubkey(), 1)
+            .transfer_tokens(&authority, nft_mint, recipient.pubkey(), 1)
             .unwrap();
 
-        let owner_token_account = client.token_account(owner_token_pubkey).unwrap();
-        assert_eq!(owner_token_account.amount, 0);
+        let authority_token_account = client.token_account(authority_token_pubkey).unwrap();
+        assert_eq!(authority_token_account.amount, 0);
 
         let recipient_token_pubkey = get_associated_token_address(&recipient.pubkey(), &nft_mint);
 
@@ -493,7 +504,7 @@ mod tests {
         let creators = metadata.data.creators.unwrap();
         assert!(metadata.primary_sale_happened);
         assert_eq!(creators.len(), 2);
-        assert_eq!(creators[0].address, owner.pubkey());
+        assert_eq!(creators[0].address, authority.pubkey());
         assert_eq!(creators[0].share, AUTHORITY_SHARE);
         assert_eq!(creators[1].address, recipient.pubkey());
         assert_eq!(creators[1].share, 100 - AUTHORITY_SHARE);

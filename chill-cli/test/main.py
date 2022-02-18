@@ -74,9 +74,9 @@ class CliTest(unittest.TestCase):
         self.assertTrue(str(balance) in output)
         self.assertEqual(code, 0)
 
-        owner = default_owner()
+        authority = default_authority()
         mint = default_mintfile()
-        amount = self.client.token_amount(owner, mint)
+        amount = self.client.token_amount(authority, mint)
         self.assertEqual(amount, balance)
 
     def test_transfer(self):
@@ -84,11 +84,11 @@ class CliTest(unittest.TestCase):
         balance = initial_balance
         output, code = runCli(f'mint {balance}')
 
-        owner = default_owner()
+        authority = default_authority()
         recipient = recipient_pubkey()
         mint = default_mintfile()
 
-        amount = self.client.token_amount(owner, mint)
+        amount = self.client.token_amount(authority, mint)
         self.assertEqual(amount, balance)
         self.assertEqual(code, 0)
         self.assertFalse(self.client.token_account_exists(recipient, mint))
@@ -109,16 +109,16 @@ class CliTest(unittest.TestCase):
             self.assertEqual(code, 0)
 
         output, _ = runCli('balance')
-        owner_amount = self.client.token_amount(owner, mint)
-        self.assertEqual(owner_amount, balance)
+        authority_amount = self.client.token_amount(authority, mint)
+        self.assertEqual(authority_amount, balance)
         self.assertTrue(str(balance) in output)
 
-        output, _ = runCli(f'balance --owner {owner}')
-        owner_amount = self.client.token_amount(owner, mint)
-        self.assertEqual(owner_amount, balance)
+        output, _ = runCli(f'balance --account {authority}')
+        authority_amount = self.client.token_amount(authority, mint)
+        self.assertEqual(authority_amount, balance)
         self.assertTrue(str(balance) in output)
 
-        output, _ = runCli(f'balance --owner {recipient}')
+        output, _ = runCli(f'balance --account {recipient}')
         recipient_amount = self.client.token_amount(recipient, mint)
         self.assertEqual(recipient_amount, initial_balance - balance)
         self.assertTrue(str(initial_balance - balance) in output)
@@ -190,13 +190,15 @@ class CliTest(unittest.TestCase):
 
         client = Client()
         mint_address = PublicKey(output.splitlines()[0].split(': ')[1])
-        self.assertEqual(client.token_amount(default_owner(), mint_address), 1)
+        self.assertEqual(client.token_amount(
+            default_authority(), mint_address), 1)
 
         recipient = recipient_pubkey()
         _, code = runCli(
             f"transfer {recipient} 1 --mint-address {mint_address}")
         self.assertEqual(code, 0)
-        self.assertEqual(client.token_amount(default_owner(), mint_address), 0)
+        self.assertEqual(client.token_amount(
+            default_authority(), mint_address), 0)
         self.assertEqual(client.token_amount(recipient, mint_address), 1)
 
 

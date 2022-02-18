@@ -10,7 +10,7 @@ DEFAULT_KEY_PATH = Path.home() / '.config' / 'solana' / 'id.json'
 DEFAULT_MINT_PATH = Path.cwd() / 'mint.devnet.pubkey'
 
 KEYPAIRS = PROJECT_DIR / 'localnet'
-OWNER_PATH = KEYPAIRS / 'owner.json'
+AUTHORITY_PATH = KEYPAIRS / 'authority.json'
 RECIPIENT_PATH = KEYPAIRS / 'recipient.json'
 TESTMINT_PATH = KEYPAIRS / 'mint.pubkey.localnet'
 
@@ -28,7 +28,7 @@ def get_keypair(path):
         return Keypair.from_secret_key(keypair)
 
 
-def default_owner():
+def default_authority():
     path = Path.home() / '.config' / 'solana' / 'id.json'
     return get_keypair(path).public_key
 
@@ -38,8 +38,8 @@ def default_mintfile():
     return get_mint_pubkey(path)
 
 
-def owner():
-    return get_keypair(OWNER_PATH).public_key
+def authority():
+    return get_keypair(AUTHORITY_PATH).public_key
 
 
 def recipient_pubkey():

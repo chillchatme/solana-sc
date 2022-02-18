@@ -23,6 +23,8 @@ const COMMAND_MINT_NFT: &str = "mint-nft";
 const COMMAND_TRANSFER: &str = "transfer";
 
 const AMOUNT: &str = "amount";
+const AUTHORITY: &str = "authority";
+const ACCOUNT: &str = "account";
 const DECIMALS: &str = "decimals";
 const FEES: &str = "fees";
 const FEES_CHARACTER: &str = "character";
@@ -34,12 +36,11 @@ const MAINNET: &str = "mainnet";
 const MINT: &str = "mint-address";
 const MINT_SHARE: &str = "mint-share";
 const NAME: &str = "name";
-const SYMBOL: &str = "symbol";
 const NFT_TYPE: &str = "type";
-const OWNER: &str = "owner";
 const PROGRAM_ID: &str = "program-id";
 const RECIPIENT: &str = "recipient";
 const SAVE_PATH: &str = "save-path";
+const SYMBOL: &str = "symbol";
 const TRANSACTION_SHARE: &str = "transaction-share";
 const URL: &str = "url";
 
@@ -101,13 +102,15 @@ impl<'a> Cli<'a> {
             "   * a path to a pubkey file"
         );
 
-        let owner = Arg::with_name(OWNER)
-            .long(OWNER)
-            .short("o")
+        let authority = Arg::with_name(AUTHORITY)
+            .long(AUTHORITY)
+            .short("k")
             .required(false)
             .takes_value(true)
             .value_name(account_address)
             .validator(is_valid_signer);
+
+        let account = authority.clone().long(ACCOUNT);
 
         let mint = Arg::with_name(MINT)
             .long(MINT)
@@ -169,7 +172,7 @@ impl<'a> Cli<'a> {
                 decimals,
                 mainnet.clone(),
                 mint.clone(),
-                owner.clone(),
+                authority.clone(),
                 save_path,
             ])
             .about(
@@ -178,7 +181,7 @@ impl<'a> Cli<'a> {
             .after_help(account_address_help);
 
         let balance_command = SubCommand::with_name(COMMAND_BALANCE)
-            .args(&[mainnet.clone(), mint.clone(), owner.clone()])
+            .args(&[mainnet.clone(), mint.clone(), account])
             .about("Prints the balance of the token account")
             .after_help(account_address_help);
 
@@ -190,7 +193,7 @@ impl<'a> Cli<'a> {
             .args(&[
                 mainnet.clone(),
                 mint.clone(),
-                owner.clone(),
+                authority.clone(),
                 required_recipient,
                 amount_transfer,
             ])
@@ -273,7 +276,7 @@ impl<'a> Cli<'a> {
             .args(&[
                 mainnet.clone(),
                 mint.clone(),
-                owner.clone(),
+                authority.clone(),
                 program_id.clone(),
                 multiple_recipients,
                 mint_share,
@@ -335,7 +338,7 @@ impl<'a> Cli<'a> {
                 url,
                 symbol,
                 fees,
-                owner,
+                authority,
                 mint,
                 optional_recipient,
                 program_id,
@@ -432,8 +435,8 @@ impl<'a> Cli<'a> {
     ) -> core::result::Result<Option<Box<dyn Signer>>, Box<dyn error::Error>> {
         let matches = self.get_matches().1;
         if matches.is_present(key) {
-            let owner = matches.value_of(key).unwrap();
-            let signer = signer_from_path(matches, owner, key, &mut None)?;
+            let signer_path = matches.value_of(key).unwrap();
+            let signer = signer_from_path(matches, signer_path, key, &mut None)?;
             Ok(Some(signer))
         } else {
             Ok(None)
@@ -456,13 +459,13 @@ impl<'a> Cli<'a> {
             .map_err(|e| CliError::CannotGetRecipient(e.to_string()).into())
     }
 
-    pub fn owner_pubkey(&self) -> Option<Pubkey> {
-        self.get_pubkey(OWNER)
+    pub fn authority_pubkey(&self) -> Option<Pubkey> {
+        self.get_pubkey(AUTHORITY)
     }
 
-    pub fn owner(&self) -> Result<Option<Box<dyn Signer>>> {
-        self.get_signer(OWNER)
-            .map_err(|e| CliError::CannotGetOwner(e.to_string()).into())
+    pub fn authority(&self) -> Result<Option<Box<dyn Signer>>> {
+        self.get_signer(AUTHORITY)
+            .map_err(|e| CliError::CannotGetAuthority(e.to_string()).into())
     }
 
     fn default_mint_file(&self) -> &str {
@@ -568,7 +571,7 @@ mod tests {
     use solana_sdk::signature::{read_keypair_file, Keypair};
 
     const MINT_PATH: &str = "../localnet/mint.pubkey.localnet";
-    const OWNER_PATH: &str = "../localnet/owner.json";
+    const AUTHORITY_PATH: &str = "../localnet/authority.json";
     const RECIPIENT_PATH: &str = "../localnet/recipient.json";
 
     fn get_cli<'a>(args: &[&'a str]) -> Cli<'a> {
@@ -585,8 +588,8 @@ mod tests {
         Pubkey::from_str(pubkey_str.trim()).unwrap()
     }
 
-    fn owner() -> Keypair {
-        read_keypair_file(OWNER_PATH).unwrap()
+    fn authority() -> Keypair {
+        read_keypair_file(AUTHORITY_PATH).unwrap()
     }
 
     fn recipient() -> Keypair {
@@ -602,14 +605,22 @@ mod tests {
         assert!(cli.default_mint_file().contains("devnet"));
         assert!(cli.mint().unwrap().is_none());
         assert_eq!(cli.decimals(), 9);
-        assert_eq!(cli.owner().unwrap(), None);
+        assert_eq!(cli.authority().unwrap(), None);
         assert_eq!(cli.save_path(), cli.default_mint_file());
         assert_eq!(cli.ui_amount().to_string(), amount);
 
         let decimals = "0";
         let all_args_string = format!(
             "{0} {1} --{2} {3} --{4} {5} --{6} {7} --{8}",
-            COMMAND_MINT, amount, OWNER, OWNER_PATH, DECIMALS, decimals, MINT, MINT_PATH, MAINNET
+            COMMAND_MINT,
+            amount,
+            AUTHORITY,
+            AUTHORITY_PATH,
+            DECIMALS,
+            decimals,
+            MINT,
+            MINT_PATH,
+            MAINNET
         );
 
         let args = all_args_string.split(' ').collect::<Vec<&str>>();
@@ -619,7 +630,10 @@ mod tests {
         assert!(cli.mainnet());
         assert_eq!(cli.decimals().to_string(), decimals);
         assert_eq!(cli.mint().unwrap(), Some(mint_pubkey()));
-        assert_eq!(cli.owner().unwrap().unwrap().pubkey(), owner().pubkey());
+        assert_eq!(
+            cli.authority().unwrap().unwrap().pubkey(),
+            authority().pubkey()
+        );
         assert_eq!(cli.save_path(), cli.default_mint_file());
         assert_eq!(cli.ui_amount().to_string(), amount);
     }
@@ -630,7 +644,7 @@ mod tests {
 
         assert!(!cli.mainnet());
         assert!(cli.mint().unwrap().is_none());
-        assert_eq!(cli.owner().unwrap(), None);
+        assert_eq!(cli.authority().unwrap(), None);
 
         let args_with_mint_as_pubkey =
             format!("{0} --{1} {2}", COMMAND_BALANCE, MINT, mint_pubkey());
@@ -641,7 +655,7 @@ mod tests {
 
         let all_args_string = format!(
             "{0} --{1} {2} --{3} {4} --{5}",
-            COMMAND_BALANCE, OWNER, OWNER_PATH, MINT, MINT_PATH, MAINNET
+            COMMAND_BALANCE, ACCOUNT, AUTHORITY_PATH, MINT, MINT_PATH, MAINNET
         );
 
         let args = all_args_string.split(' ').collect::<Vec<&str>>();
@@ -649,7 +663,10 @@ mod tests {
 
         assert!(cli.mainnet());
         assert_eq!(cli.mint().unwrap(), Some(mint_pubkey()));
-        assert_eq!(cli.owner().unwrap().unwrap().pubkey(), owner().pubkey());
+        assert_eq!(
+            cli.authority().unwrap().unwrap().pubkey(),
+            authority().pubkey()
+        );
     }
 
     #[test]
@@ -659,7 +676,7 @@ mod tests {
 
         assert!(!cli.mainnet());
         assert!(cli.mint().unwrap().is_none());
-        assert_eq!(cli.owner().unwrap(), None);
+        assert_eq!(cli.authority().unwrap(), None);
         assert_eq!(cli.recipient_pubkey(), Some(recipient().pubkey()));
         assert_eq!(cli.ui_amount().to_string(), amount);
 
@@ -669,7 +686,14 @@ mod tests {
 
         let all_args_string = format!(
             "{0} {1} {2} --{3} {4} --{5} {6} --{7}",
-            COMMAND_TRANSFER, RECIPIENT_PATH, amount, MINT, MINT_PATH, OWNER, OWNER_PATH, MAINNET
+            COMMAND_TRANSFER,
+            RECIPIENT_PATH,
+            amount,
+            MINT,
+            MINT_PATH,
+            AUTHORITY,
+            AUTHORITY_PATH,
+            MAINNET
         );
 
         let args = all_args_string.split(' ').collect::<Vec<&str>>();
@@ -677,7 +701,10 @@ mod tests {
 
         assert!(cli.mainnet());
         assert_eq!(cli.mint().unwrap(), Some(mint_pubkey()));
-        assert_eq!(cli.owner().unwrap().unwrap().pubkey(), owner().pubkey());
+        assert_eq!(
+            cli.authority().unwrap().unwrap().pubkey(),
+            authority().pubkey()
+        );
         assert_eq!(cli.recipient_pubkey(), Some(recipient().pubkey()));
         assert_eq!(cli.ui_amount().to_string(), amount);
     }
@@ -721,7 +748,7 @@ mod tests {
 
         assert!(!cli.mainnet());
         assert!(cli.mint().unwrap().is_none());
-        assert_eq!(cli.owner().unwrap(), None);
+        assert_eq!(cli.authority().unwrap(), None);
         assert_eq!(cli.multiple_recipients().unwrap(), vec![recipient]);
         assert_eq!(cli.fees(), fees);
 
@@ -749,8 +776,8 @@ mod tests {
             MAINNET,
             MINT,
             MINT_PATH,
-            OWNER,
-            OWNER_PATH
+            AUTHORITY,
+            AUTHORITY_PATH
         );
 
         for recipient in recipients.iter() {
@@ -772,7 +799,10 @@ mod tests {
 
         assert!(cli.mainnet());
         assert_eq!(cli.mint().unwrap(), Some(mint_pubkey()));
-        assert_eq!(cli.owner().unwrap().unwrap().pubkey(), owner().pubkey());
+        assert_eq!(
+            cli.authority().unwrap().unwrap().pubkey(),
+            authority().pubkey()
+        );
         assert_eq!(cli.multiple_recipients().unwrap(), recipients);
         assert_eq!(cli.fees(), fees);
     }
@@ -804,7 +834,7 @@ mod tests {
 
         assert!(!cli.mainnet());
         assert!(cli.mint().unwrap().is_none());
-        assert_eq!(cli.owner().unwrap(), None);
+        assert_eq!(cli.authority().unwrap(), None);
         assert_eq!(cli.program_id(), chill_api::ID);
         assert_eq!(cli.recipient().unwrap(), None);
         assert_eq!(cli.recipient_pubkey(), None);
@@ -841,8 +871,8 @@ mod tests {
             mint_args.symbol,
             FEES,
             ui_fees,
-            OWNER,
-            OWNER_PATH,
+            AUTHORITY,
+            AUTHORITY_PATH,
             MINT,
             MINT_PATH,
             RECIPIENT,
@@ -859,7 +889,10 @@ mod tests {
         assert!(cli.mainnet());
         assert_eq!(cli_mint_args, mint_args);
         assert_eq!(cli.mint().unwrap(), Some(mint_pubkey()));
-        assert_eq!(cli.owner().unwrap().unwrap().pubkey(), owner().pubkey());
+        assert_eq!(
+            cli.authority().unwrap().unwrap().pubkey(),
+            authority().pubkey()
+        );
         assert_eq!(
             cli.recipient().unwrap().unwrap().pubkey(),
             recipient().pubkey()

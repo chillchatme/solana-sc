@@ -154,16 +154,16 @@ impl Config {
 
     pub const MAX_RECIPIENT_NUMBER: usize = 3;
 
-    pub fn check_recipients(recipients: &Vec<Recipient>) -> Result<(), ChillProgramError> {
+    pub fn check_recipients(recipients: &[Recipient]) -> Result<(), ChillProgramError> {
         if recipients.len() > Self::MAX_RECIPIENT_NUMBER {
-            return Err(ChillProgramError::MaximumRecipientsNumberExceeded.into());
+            return Err(ChillProgramError::MaximumRecipientsNumberExceeded);
         }
 
         if !recipients.is_empty() {
             let mint_share_sum = recipients.iter().map(|r| r.mint_share).sum::<u8>();
             let transaction_share_sum = recipients.iter().map(|r| r.mint_share).sum::<u8>();
             if mint_share_sum != 100 || transaction_share_sum != 100 {
-                return Err(ChillProgramError::InvalidShares.into());
+                return Err(ChillProgramError::InvalidShares);
             }
         }
 

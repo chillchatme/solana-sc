@@ -30,8 +30,8 @@ pub enum CliError {
     #[error("Cannot write data to the file '{0}'")]
     CannotWriteToFile(String),
 
-    #[error("Cannot get owner: {0}")]
-    CannotGetOwner(String),
+    #[error("Cannot get authority: {0}")]
+    CannotGetAuthority(String),
 
     #[error("Cannot get recipient: {0}")]
     CannotGetRecipient(String),
@@ -45,11 +45,11 @@ pub enum CliError {
     #[error("Please specify a mint address with '--mint-address' argument")]
     MintNotSpecified,
 
-    #[error("Owner account not found. Please specify the path to existing keypair with '--owner' argument")]
-    OwnerNotFound,
+    #[error("Authority account not found. Please specify the path to existing keypair with '--authority' argument")]
+    AuthorityNotFound,
 
-    #[error("Mint '{0}' has another owner")]
-    OwnerNotMatch(Pubkey),
+    #[error("Mint '{0}' has another authority")]
+    AuthorityNotMatch(Pubkey),
 
     #[error("Cannot transfer zero tokens")]
     TransferZeroTokens,
