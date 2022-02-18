@@ -1,4 +1,3 @@
-from pathlib import Path
 import os
 import random
 import shutil
@@ -120,8 +119,8 @@ class CliTest(unittest.TestCase):
         self.assertTrue(str(balance) in output)
 
         output, _ = runCli(f'balance --owner {recipient}')
-        receiver_amount = self.client.token_amount(recipient, mint)
-        self.assertEqual(receiver_amount, initial_balance - balance)
+        recipient_amount = self.client.token_amount(recipient, mint)
+        self.assertEqual(recipient_amount, initial_balance - balance)
         self.assertTrue(str(initial_balance - balance) in output)
 
         _, code = runCli(f'tranfser {recipient} 0')
@@ -131,9 +130,6 @@ class CliTest(unittest.TestCase):
         initial_balance = 1000
         balance = initial_balance
         runCli(f'mint {balance}')
-
-        owner = default_owner()
-        mint = default_mintfile()
 
         total_mint_share = 100
         total_transaction_share = 100
@@ -179,8 +175,29 @@ class CliTest(unittest.TestCase):
                             f"--transaction-share {t_3}"
                             ))
 
-        output, code = runCli(args)
+        _, code = runCli(args)
         self.assertEqual(code, 0)
+
+    def test_mint_nft(self):
+        self.test_initialization()
+        nft_types = ("character", "pet", "emote", "tileset", "item")
+        nft_type = random.choice(nft_types)
+        name = "NAME_" + str(random.randint(0, 100))
+        uri = "https://arweave.org/" + str(Keypair.generate().public_key)
+
+        output, code = runCli(f"mint-nft {nft_type} {name} {uri}")
+        self.assertEqual(code, 0)
+
+        client = Client()
+        mint_address = PublicKey(output.splitlines()[0].split(': ')[1])
+        self.assertEqual(client.token_amount(default_owner(), mint_address), 1)
+
+        recipient = recipient_pubkey()
+        _, code = runCli(
+            f"transfer {recipient} 1 --mint-address {mint_address}")
+        self.assertEqual(code, 0)
+        self.assertEqual(client.token_amount(default_owner(), mint_address), 0)
+        self.assertEqual(client.token_amount(recipient, mint_address), 1)
 
 
 if __name__ == '__main__':

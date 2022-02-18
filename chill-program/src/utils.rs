@@ -11,7 +11,7 @@ pub mod nft;
 pub struct TokenBuilder {
     pub name: String,
     pub symbol: String,
-    pub uri: String,
+    pub url: String,
     pub creators: Option<Vec<Creator>>,
     pub seller_fee_basis_points: u16,
 }

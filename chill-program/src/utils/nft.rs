@@ -25,7 +25,7 @@ pub fn metadata<'info>(
             *authority.key,
             token_builder.name,
             token_builder.symbol,
-            token_builder.uri,
+            token_builder.url,
             token_builder.creators,
             token_builder.seller_fee_basis_points,
             true,

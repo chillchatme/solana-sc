@@ -75,7 +75,7 @@ pub fn process_mint_nft(
     let token_builder = TokenBuilder {
         name: args.name,
         symbol: args.symbol,
-        uri: args.uri,
+        url: args.url,
         creators: Some(creators),
         seller_fee_basis_points: args.fees,
     };

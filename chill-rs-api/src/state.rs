@@ -35,6 +35,21 @@ impl NftType {
     pub const LEN: usize = 1;
 }
 
+impl TryFrom<&str> for NftType {
+    type Error = String;
+
+    fn try_from(string: &str) -> Result<Self, Self::Error> {
+        match string {
+            "character" => Ok(NftType::Character),
+            "pet" => Ok(NftType::Pet),
+            "emote" => Ok(NftType::Emote),
+            "tileset" => Ok(NftType::Tileset),
+            "item" => Ok(NftType::Item),
+            _ => Err("Wrong nft type".to_owned()),
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct UiFees {

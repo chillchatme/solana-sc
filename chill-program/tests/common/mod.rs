@@ -11,7 +11,7 @@ use std::sync::Mutex;
 pub const DECIMALS: u8 = 9;
 pub const LAMPORTS: u64 = 500_000_000;
 pub const TOKEN_AMOUNT: u64 = 1_000;
-pub const RPC_URL: &str = "https://devnet.solana.com";
+pub const RPC_URL: &str = "http://localhost:8899";
 
 lazy_static! {
     static ref TEST_MUTEX: Mutex<()> = Mutex::new(());
@@ -84,7 +84,7 @@ pub fn random_nft_args() -> MintNftArgs {
         nft_type: *nft_type,
         name: format!("NAME_{0}", rng.gen_range(0..100)),
         symbol: format!("SYM_{0}", rng.gen_range(0..100)),
-        uri: format!("https://arweave.com/{0}", Keypair::new().pubkey()),
+        url: format!("https://arweave.com/{0}", Keypair::new().pubkey()),
         fees: rng.gen_range(0..=10000),
     }
 }

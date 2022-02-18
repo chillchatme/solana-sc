@@ -21,6 +21,9 @@ pub enum AppError {
 
 #[derive(Error, Debug)]
 pub enum CliError {
+    #[error("Fees must be from 0 to 100")]
+    FeesOutOfRange,
+
     #[error("Cannot parse pubkey from the file '{0}' - {1}")]
     CannotParseFile(String, String),
 
@@ -29,6 +32,9 @@ pub enum CliError {
 
     #[error("Cannot get owner: {0}")]
     CannotGetOwner(String),
+
+    #[error("Cannot get recipient: {0}")]
+    CannotGetRecipient(String),
 
     #[error("Insufficient tokens amount. Expected at least {0} tokens, found {1} tokens")]
     InsufficientTokens(f64, f64),

@@ -9,7 +9,7 @@ use solana_sdk::{
     native_token::sol_to_lamports,
     program_option::COption,
     pubkey::Pubkey,
-    signature::{read_keypair_file, write_keypair_file, Keypair},
+    signature::{read_keypair_file, write_keypair_file, Keypair, Signature},
     signer::Signer,
 };
 use std::{
@@ -156,17 +156,8 @@ impl App<'_> {
         Ok(mint)
     }
 
-    fn get_or_create_token_account(&self, owner: &dyn Signer, mint: Pubkey) -> Result<Pubkey> {
-        let associated_token_pubkey = self.client.associated_token_address(owner.pubkey(), mint);
-        if self.client.token_account(associated_token_pubkey).is_ok() {
-            return Ok(associated_token_pubkey);
-        }
-
-        let token = self
-            .client
-            .create_token_account(owner, owner.pubkey(), mint)?;
-
-        Ok(token)
+    fn print_signature(&self, signature: &Signature) {
+        println!("{} {}", "Signature:".cyan(), signature);
     }
 
     fn print_balance(&self, owner: Pubkey, mint: Pubkey) -> Result<()> {
@@ -224,13 +215,68 @@ impl App<'_> {
 
         let decimals = self.cli.decimals();
         let mint = self.get_or_create_mint(owner.as_ref(), decimals)?;
-        let token = self.get_or_create_token_account(owner.as_ref(), mint)?;
+        let token =
+            self.client
+                .get_or_create_token_account(owner.as_ref(), owner.pubkey(), mint)?;
 
         let ui_amount = self.cli.ui_amount();
         let amount = spl_token::ui_amount_to_amount(ui_amount, decimals);
         self.client.mint_to(owner.as_ref(), mint, token, amount)?;
 
         self.print_balance(owner.pubkey(), mint)
+    }
+
+    fn process_mint_nft(&self) -> Result<()> {
+        let owner = self.get_owner()?;
+
+        let recipient_signer = self.cli.recipient();
+        let nft_recipient = match recipient_signer {
+            Ok(Some(ref signer)) => signer,
+            _ => &owner,
+        };
+
+        let mint_chill = self.get_mint()?;
+        let recipient_token_account = self.client.get_or_create_token_account(
+            nft_recipient.as_ref(),
+            nft_recipient.pubkey(),
+            mint_chill,
+        )?;
+
+        let program_id = self.cli.program_id();
+        let args = self.cli.mint_args()?;
+
+        let (nft_mint, nft_token) = self
+            .client
+            .create_mint_and_token_nft(owner.as_ref(), nft_recipient.as_ref())?;
+
+        println!("{0} {1}", "NFT Mint:".green(), nft_mint);
+        let signature = self.client.mint_nft(
+            program_id,
+            owner.as_ref(),
+            nft_recipient.as_ref(),
+            mint_chill,
+            recipient_token_account,
+            nft_mint,
+            nft_token,
+            args,
+        )?;
+        self.print_signature(&signature);
+
+        let recipient_pubkey_opt = self.cli.recipient_pubkey();
+        if recipient_pubkey_opt.is_none() {
+            return Ok(());
+        }
+
+        let recipient_pubkey = recipient_pubkey_opt.unwrap();
+        if recipient_pubkey != nft_recipient.pubkey() {
+            println!("\n{} '{}'", "Transfer NFT to".green(), recipient_pubkey);
+            let signature =
+                self.client
+                    .transfer_tokens(owner.as_ref(), nft_mint, recipient_pubkey, 1)?;
+            self.print_signature(&signature);
+        }
+
+        Ok(())
     }
 
     fn process_print_info(&self) -> Result<()> {
@@ -248,21 +294,13 @@ impl App<'_> {
     fn process_transfer(&self) -> Result<()> {
         let owner = self.get_owner()?;
         let mint = self.get_mint()?;
-        self.assert_mint_owner(mint, owner.pubkey())?;
 
         let ui_amount = self.cli.ui_amount();
-        let recipient = self.cli.recipient();
+        let recipient = self.cli.recipient_pubkey().unwrap();
 
         if ui_amount == 0.0 {
             return Err(CliError::TransferZeroTokens.into());
         }
-
-        let recipient_token_account = match self.client.find_token_account(recipient, mint)? {
-            Some(token_account) => token_account,
-            None => self
-                .client
-                .create_token_account(owner.as_ref(), recipient, mint)?,
-        };
 
         let current_balance = self.client.ui_token_balance(owner.pubkey(), mint)?;
         if ui_amount > current_balance {
@@ -273,11 +311,11 @@ impl App<'_> {
         let decimals = mint_account.decimals;
         let amount = spl_token::ui_amount_to_amount(ui_amount, decimals);
 
-        let signature =
-            self.client
-                .transfer_tokens(owner.as_ref(), mint, recipient_token_account, amount)?;
+        let signature = self
+            .client
+            .transfer_tokens(owner.as_ref(), mint, recipient, amount)?;
 
-        println!("{} {}", "Signature:".cyan(), signature);
+        self.print_signature(&signature);
         self.print_balance(owner.pubkey(), mint)
     }
 
@@ -306,6 +344,7 @@ impl App<'_> {
             CliCommand::Info => self.process_print_info(),
             CliCommand::Initialize => self.initialize(),
             CliCommand::Mint => self.process_mint(),
+            CliCommand::MintNft => self.process_mint_nft(),
             CliCommand::Transfer => self.process_transfer(),
         };
 

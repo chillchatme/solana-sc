@@ -11,10 +11,16 @@ pub enum ClientError {
 #[derive(Debug, Error)]
 pub enum CustomClientError {
     #[error("Data cannot be parsed as a mint account")]
-    DataIsNotMint,
+    AccountIsNotMint,
+
+    #[error("Data cannot be parsed as a metadata account")]
+    AccountIsNotMetadata,
 
     #[error("Data cannot be parsed as a token account")]
-    DataIsNotTokenAccount,
+    AccountIsNotToken,
+
+    #[error("Metadata for mint '{0}' not found")]
+    MetadataNotFound(Pubkey),
 
     #[error("Mint '{0}' not found. Please specify the correct mint address with '--mint-address' argument")]
     MintNotFound(Pubkey),
@@ -27,6 +33,9 @@ pub enum CustomClientError {
 
     #[error("Config account not found. Initialize it with \"initialize\" command")]
     ConfigNotFound,
+
+    #[error("Not enoght tokens to transfer. Expected {0}, found {1}")]
+    NotEnoughTokens(f64, f64),
 }
 
 impl From<RpcClientError> for ClientError {

@@ -18,12 +18,12 @@ pub struct InitializeArgs {
 }
 
 #[repr(C)]
-#[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct MintNftArgs {
     pub nft_type: NftType,
     pub name: String,
     pub symbol: String,
-    pub uri: String,
+    pub url: String,
     pub fees: u16, // 10000 = 100%
 }
 

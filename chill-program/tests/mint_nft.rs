@@ -11,6 +11,7 @@ use common::{
 use mpl_token_metadata::state::{Creator, Metadata};
 use solana_program::{borsh::try_from_slice_unchecked, pubkey::Pubkey};
 use solana_sdk::signature::{Keypair, Signer};
+use spl_associated_token_account::get_associated_token_address;
 
 mod common;
 
@@ -44,7 +45,7 @@ fn initialize(client: &Client, authority: &Keypair, explicit_recipient: Option<P
 
     for recipient in recipients.iter() {
         client
-            .create_token_account(authority, recipient.address, mint)
+            .get_or_create_token_account(authority, recipient.address, mint)
             .unwrap();
     }
 
@@ -90,7 +91,7 @@ fn assert_metadata(
     let zero = char::from(0);
     assert_eq!(data.name.trim_end_matches(zero), mint_args.name);
     assert_eq!(data.symbol.trim_end_matches(zero), mint_args.symbol);
-    assert_eq!(data.uri.trim_end_matches(zero), mint_args.uri);
+    assert_eq!(data.uri.trim_end_matches(zero), mint_args.url);
     assert_eq!(data.seller_fee_basis_points, mint_args.fees);
     assert_eq!(data.creators, Some(creators));
 }
@@ -102,29 +103,13 @@ fn create_token_account(
     mint: Pubkey,
 ) -> Pubkey {
     let owner_token_account = client
-        .create_token_account(owner, owner.pubkey(), mint)
+        .get_or_create_token_account(owner, owner.pubkey(), mint)
         .unwrap();
     client
         .mint_to(authority, mint, owner_token_account, TOKEN_AMOUNT)
         .unwrap();
 
     owner_token_account
-}
-
-fn accounts_for_mint_nft(
-    client: &Client,
-    authority: &Keypair,
-    nft_owner: &Keypair,
-) -> (Pubkey, Pubkey) {
-    let nft_mint = client.create_mint(authority, 0).unwrap();
-
-    let nft_token = client
-        .create_token_account(nft_owner, nft_owner.pubkey(), nft_mint)
-        .unwrap();
-
-    client.mint_to(authority, nft_mint, nft_token, 1).unwrap();
-
-    (nft_mint, nft_token)
 }
 
 #[test]
@@ -143,7 +128,8 @@ fn mint_nft() {
         for _ in 0..2 {
             let mint_nft_args = random_nft_args();
             let initial_balances = recipients_balances(&client, mint);
-            let (nft_mint, nft_token) = accounts_for_mint_nft(&client, &authority, &user);
+            let (nft_mint, nft_token) =
+                client.create_mint_and_token_nft(&authority, &user).unwrap();
 
             client
                 .mint_nft(
@@ -204,7 +190,9 @@ fn mint_nft_to_authority() {
         for _ in 0..2 {
             let mint_nft_args = random_nft_args();
             let initial_balances = recipients_balances(&client, mint);
-            let (nft_mint, nft_token) = accounts_for_mint_nft(&client, &authority, &authority);
+            let (nft_mint, nft_token) = client
+                .create_mint_and_token_nft(&authority, &authority)
+                .unwrap();
 
             client
                 .mint_nft(
@@ -253,7 +241,7 @@ fn mint_nft_with_recipient_authority() {
 
     for _ in 0..2 {
         let mint = initialize(&client, &authority, Some(authority.pubkey()));
-        let authority_token_account = client.associated_token_address(authority.pubkey(), mint);
+        let authority_token_account = get_associated_token_address(&authority.pubkey(), &mint);
         client
             .mint_to(&authority, mint, authority_token_account, TOKEN_AMOUNT)
             .unwrap();
@@ -261,7 +249,9 @@ fn mint_nft_with_recipient_authority() {
         for _ in 0..2 {
             let mint_nft_args = random_nft_args();
             let initial_balances = recipients_balances(&client, mint);
-            let (nft_mint, nft_token) = accounts_for_mint_nft(&client, &authority, &authority);
+            let (nft_mint, nft_token) = client
+                .create_mint_and_token_nft(&authority, &authority)
+                .unwrap();
 
             let initial_authority_balance = client.token_balance(authority.pubkey(), mint).unwrap();
 
