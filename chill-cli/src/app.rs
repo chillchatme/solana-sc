@@ -215,18 +215,18 @@ impl App<'_> {
 
         let decimals = self.cli.decimals();
         let mint = self.get_or_create_mint(authority.as_ref(), decimals)?;
-        let token = self.client.get_or_create_token_account(
-            authority.as_ref(),
-            authority.pubkey(),
-            mint,
-        )?;
+
+        let recipient = self.cli.recipient_pubkey().unwrap_or(authority.pubkey());
+        let token_account_pubkey =
+            self.client
+                .get_or_create_token_account(authority.as_ref(), recipient, mint)?;
 
         let ui_amount = self.cli.ui_amount();
         let amount = spl_token::ui_amount_to_amount(ui_amount, decimals);
         self.client
-            .mint_to(authority.as_ref(), mint, token, amount)?;
+            .mint_to(authority.as_ref(), mint, token_account_pubkey, amount)?;
 
-        self.print_balance(authority.pubkey(), mint)
+        self.print_balance(recipient, mint)
     }
 
     fn process_mint_nft(&self) -> Result<()> {

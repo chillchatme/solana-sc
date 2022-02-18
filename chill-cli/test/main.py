@@ -19,9 +19,7 @@ def runCli(args: str):
     stdout = output.stdout.decode('UTF-8')
     returncode = output.returncode
 
-    if returncode == 0:
-        print(stdout)
-
+    print(stdout)
     return stdout, returncode
 
 
@@ -59,7 +57,7 @@ class CliTest(unittest.TestCase):
         if self.keyfile is not None:
             shutil.move(self.keyfile, DEFAULT_KEY_PATH)
 
-    def test_initial_mint(self):
+    def test_mint(self):
         balance = 0
         for _ in range(3):
             amount = random.randint(0, 1000)
@@ -78,6 +76,16 @@ class CliTest(unittest.TestCase):
         mint = default_mintfile()
         amount = self.client.token_amount(authority, mint)
         self.assertEqual(amount, balance)
+
+        amount = random.randint(0, 1000)
+        recipient = str(Keypair.generate().public_key)
+        output, code = runCli(f'mint {amount} --recipient {recipient}')
+        self.assertEqual(code, 0)
+        self.assertTrue(str(amount) in output)
+
+        output, code = runCli(f'balance --account {recipient}')
+        self.assertEqual(code, 0)
+        self.assertTrue(str(amount) in output)
 
     def test_transfer(self):
         initial_balance = 1000

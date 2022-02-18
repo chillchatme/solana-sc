@@ -158,6 +158,7 @@ impl<'a> Cli<'a> {
             .help("Recipient's account address");
 
         let required_recipient = recipient.clone().required(true);
+        let optional_recipient = recipient.long(RECIPIENT).short("r");
 
         let program_id = Arg::with_name(PROGRAM_ID)
             .long(PROGRAM_ID)
@@ -173,6 +174,7 @@ impl<'a> Cli<'a> {
                 mainnet.clone(),
                 mint.clone(),
                 authority.clone(),
+                optional_recipient.clone(),
                 save_path,
             ])
             .about(
@@ -328,8 +330,6 @@ impl<'a> Cli<'a> {
             .value_name("PERCENT")
             .default_value("2")
             .help("");
-
-        let optional_recipient = recipient.long(RECIPIENT).short("r");
 
         let mint_nft_command = SubCommand::with_name(COMMAND_MINT_NFT)
             .args(&[
@@ -602,6 +602,7 @@ mod tests {
         let cli = get_cli(&[COMMAND_MINT, amount]);
 
         assert!(!cli.mainnet());
+        assert!(cli.recipient_pubkey().is_none());
         assert!(cli.default_mint_file().contains("devnet"));
         assert!(cli.mint().unwrap().is_none());
         assert_eq!(cli.decimals(), 9);
@@ -611,7 +612,7 @@ mod tests {
 
         let decimals = "0";
         let all_args_string = format!(
-            "{0} {1} --{2} {3} --{4} {5} --{6} {7} --{8}",
+            "{0} {1} --{2} {3} --{4} {5} --{6} {7} --{8} {9} --{10}",
             COMMAND_MINT,
             amount,
             AUTHORITY,
@@ -620,6 +621,8 @@ mod tests {
             decimals,
             MINT,
             MINT_PATH,
+            RECIPIENT,
+            recipient().pubkey(),
             MAINNET
         );
 
@@ -635,6 +638,7 @@ mod tests {
             authority().pubkey()
         );
         assert_eq!(cli.save_path(), cli.default_mint_file());
+        assert_eq!(cli.recipient_pubkey(), Some(recipient().pubkey()));
         assert_eq!(cli.ui_amount().to_string(), amount);
     }
 
