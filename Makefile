@@ -2,14 +2,14 @@
 
 test:
 	cargo test
-	python ./chill-cli/test/main.py
+	python ./cli/test/main.py
 
 build:
-	cargo build --release --manifest-path ./chill-cli/Cargo.toml
+	cargo build --release --manifest-path ./cli/Cargo.toml
 
 deploy:
-	cargo build-bpf --manifest-path ./chill-program/Cargo.toml
-	solana program deploy ./target/deploy/chill_program.so
+	cargo build-bpf --manifest-path ./programs/nft/Cargo.toml
+	solana program deploy ./target/deploy/chill_nft.so
 
 install:
-	cargo install --path ./chill-cli
+	cargo install --path ./cli

@@ -128,17 +128,3 @@ For more information, run:
 ``` bash
 ./chill-cli --help
 ```
-
-## Project structure
-
-The `chill-rs-api` directory contains all the needed to build a transaction for
-the Chill smart-contract.
-
-The crate from the `chill-program` directory contains the business logic of the
-Chill smart-contract. It implements API of the `chill-rs-api` crate.
-
-The `chill-cli` directory contains the source code for the CLI utility.
-
-The `chill-client` create uses Solana RPC and `chill-rs-api` for building and
-sending transactions to the blockchain. This crate is activelly used by the
-`chill-cli` crate for running transactions and in smart-contract tests.

@@ -1,2 +1,2 @@
 [workspace]
-members = ["chill-rs-api", "chill-client", "chill-cli", "chill-program"]
+members = ["cli", "programs/*"]
