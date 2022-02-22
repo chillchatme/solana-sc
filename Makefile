@@ -3,7 +3,7 @@
 test:
 	cargo build
 	cargo test -- --nocapture
-	python ./cli/test/main.py
+	python3 ./cli/test/main.py
 
 build:
 	cargo build --release --manifest-path ./cli/Cargo.toml

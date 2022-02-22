@@ -21,10 +21,16 @@ SOL. This command will print `Program ID` of the smart contract.
 
 ## Testing
 
-Run the `make test` command to run all the tests. You should have Python
-executable in the `PATH` environment variable. *Before testing, you should
-create a backup copy of all keypairs in the `~/.config/solana` directory, if
-any*
+Run this commands to test:
+
+``` bash
+python3 -m pip install -r requirements.txt
+make test
+```
+
+You should have `Python 3` executable in the `PATH` environment variable.
+*Before testing, you should create a backup copy of all keypairs in the
+`~/.config/solana` directory, if any*
 
 ## Usage
 
