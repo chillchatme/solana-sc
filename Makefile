@@ -1,7 +1,8 @@
 .PHONY: test build deploy install
 
 test:
-	cargo test
+	cargo build
+	cargo test -- --nocapture
 	python ./cli/test/main.py
 
 build:
