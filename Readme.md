@@ -8,10 +8,23 @@ toolchain](https://www.rust-lang.org/tools/install).
 Run the command:
 
 ``` bash
-cargo build --release
+make build
 ```
 
 The executable will be located in `./target/release/chill-cli`.
+
+## Deploying
+
+Run `make deploy` command to deploy the smart contract in the Devnet cluster of
+the blockchain or `make deploy-mainnet` to deploy it in the Mainnet cluster for
+SOL. This command will print `Program ID` of the smart contract.
+
+## Testing
+
+Run the `make test` command to run all the tests. You should have Python
+executable in the `PATH` environment variable. *Before testing, you should
+create a backup copy of all keypairs in the `~/.config/solana` directory, if
+any*
 
 ## Usage
 
@@ -82,7 +95,7 @@ about `0.002` SOL.
 If you have minted a NFT to yourself, and then transfer it to someone, the recipient
 will be added to a creators list.
 
-To initialize the Chill smart-contract, you should run:
+To initialize the Chill smart contract, you should run:
 
 ``` bash
 ./chill-cli initialize        /
@@ -91,10 +104,13 @@ To initialize the Chill smart-contract, you should run:
     --item <FEES>             /
     --pet <FEES>              /
     --tileset <FEES>          /
-    --recipient <ADDRESS>
+    --recipient <ADDRESS>     /
+    --program-id <PROGRAM_ID>
 ```
 
-This command initializes the smart-contract. Each argument with \<FEES\> means
+Use the program ID that was printed during deployment.
+
+This command initializes the smart contract. Each argument with \<FEES\> means
 the price in Chill tokens to mint a NFT of this type. A recipient is an address
 who receives fees.
 
@@ -111,7 +127,8 @@ transaction shares must sum up to 100).
     --transaction-share <SHARE> /
     --recipient <ADDRESS_2>     /
     --mint-share <SHARE>        /
-    --transaction-share <SHARE>
+    --transaction-share <SHARE> /
+    --program-id <PROGRAM_ID>
 ```
 
 You can mint NFT tokens with this command:
@@ -120,7 +137,8 @@ You can mint NFT tokens with this command:
 ./chill-cli mint-nft <TYPE> <NAME> <URI>
 
 # Example
-./chill-cli mint-nft pet "Bob the cat" https://arweave.org/hkjc8h3jk2938hk32
+./chill-cli mint-nft pet "Bob the cat" https://arweave.org/hkjc8h3jk2938hk32 /
+    --program-id 64GbC4BYC6iSvrsoMtdYj7pTzLBUraCWQJMwX2srbVfk
 ```
 
 For more information, run:

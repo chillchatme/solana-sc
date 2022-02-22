@@ -9,7 +9,11 @@ build:
 
 deploy:
 	cargo build-bpf --manifest-path ./programs/nft/Cargo.toml
-	solana program deploy ./target/deploy/chill_nft.so
+	solana program deploy ./target/deploy/chill_nft.so --url devnet
+
+deploy-mainnet:
+	cargo build-bpf --manifest-path ./programs/nft/Cargo.toml
+	solana program deploy ./target/deploy/chill_nft.so --url mainnet
 
 install:
 	cargo install --path ./cli

@@ -445,7 +445,7 @@ mod tests {
 
     #[test]
     fn transfer_updates_nft() {
-        let client = Client::init("http://localhost:8899");
+        let client = Client::init("https://api.devnet.solana.com");
         let authority = Keypair::new();
         client.airdrop(authority.pubkey(), 1_000_000_000).unwrap();
 
