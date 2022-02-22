@@ -40,15 +40,15 @@ impl Client {
 
     pub fn airdrop(&self, address: Pubkey, lamports: u64) -> Result<()> {
         let blockhash = self.rpc_client.get_latest_blockhash()?;
+        let _guard;
 
-        let signature;
         if RPC_URL.contains("localhost") {
-            signature = self.rpc_client.request_airdrop(&address, lamports)?;
+            _guard = None;
         } else {
-            let _lock = TEST_MUTEX.lock().unwrap();
-            signature = self.rpc_client.request_airdrop(&address, lamports)?;
+            _guard = Some(TEST_MUTEX.lock().unwrap());
         }
 
+        let signature = self.rpc_client.request_airdrop(&address, lamports)?;
         self.rpc_client.confirm_transaction_with_spinner(
             &signature,
             &blockhash,
