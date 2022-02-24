@@ -1,10 +1,8 @@
-use crate::{
-    error::ChillError,
-    state::{Config, Fees, Recipient},
-    utils::{
-        assert,
-        pda::{self, CONFIG_SEED},
-    },
+use crate::{error::ChillError, utils::assert};
+use chill_api::{
+    instruction::InitializeArgs,
+    pda::{self, CONFIG_SEED},
+    state::Config,
 };
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
@@ -21,8 +19,7 @@ use std::convert::TryInto;
 pub fn process_initialize(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
-    fees: Fees,
-    recipients: Vec<Recipient>,
+    args: InitializeArgs,
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
 
@@ -42,7 +39,7 @@ pub fn process_initialize(
     let lamports = rent.minimum_balance(Config::LEN);
 
     let (config_pubkey, bump) = pda::config(mint.key, program_id);
-    let config_account = Config::new(mint.key, fees, recipients)?;
+    let config_account = Config::new(mint.key, args.fees, args.recipients)?;
     let seeds = &[CONFIG_SEED.as_bytes(), mint.key.as_ref(), &[bump]];
 
     invoke_signed(

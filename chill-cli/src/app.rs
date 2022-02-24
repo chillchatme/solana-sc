@@ -1,8 +1,8 @@
 use crate::{
     cli::{Cli, CliCommand},
-    client::Client,
     error::{AppError, CliError, Result},
 };
+use chill_client::client::Client;
 use colored::Colorize;
 use solana_sdk::{
     native_token::sol_to_lamports,
@@ -71,7 +71,7 @@ impl App<'_> {
         Ok(Box::new(new_keypair))
     }
 
-    fn check_balance(&self, owner: Pubkey) -> Result<()> {
+    fn try_to_airdrop(&self, owner: Pubkey) -> Result<()> {
         if self.client.balance(owner)? == 0 {
             if self.cli.mainnet() {
                 println!("{}", "You have to top up your balance".red());
@@ -159,8 +159,9 @@ impl App<'_> {
     }
 
     fn get_or_create_token_account(&self, owner: &dyn Signer, mint: Pubkey) -> Result<Pubkey> {
-        if let Ok(token) = self.client.get_token_pubkey(owner.pubkey(), mint) {
-            return Ok(token);
+        let associated_token_pubkey = self.client.associated_token_address(owner.pubkey(), mint);
+        if self.client.token_account(associated_token_pubkey).is_ok() {
+            return Ok(associated_token_pubkey);
         }
 
         let token = self
@@ -171,7 +172,7 @@ impl App<'_> {
     }
 
     fn print_balance(&self, owner: Pubkey, mint: Pubkey) -> Result<()> {
-        let balance = self.client.token_balance(owner, mint)?;
+        let balance = self.client.ui_token_balance(owner, mint)?;
         println!("{} {} tokens", "Balance:".green().bold(), balance);
 
         Ok(())
@@ -179,7 +180,7 @@ impl App<'_> {
 
     fn process_mint(&self) -> Result<()> {
         let owner = self.get_or_create_owner()?;
-        self.check_balance(owner.pubkey())?;
+        self.try_to_airdrop(owner.pubkey())?;
 
         let decimals = self.cli.decimals();
         let mint = self.get_or_create_mint(owner.as_ref(), decimals)?;
@@ -218,7 +219,7 @@ impl App<'_> {
                 .create_token_account(owner.as_ref(), receiver, mint)?,
         };
 
-        let current_balance = self.client.token_balance(owner.pubkey(), mint)?;
+        let current_balance = self.client.ui_token_balance(owner.pubkey(), mint)?;
         if ui_amount > current_balance {
             return Err(CliError::InsufficientTokens(ui_amount, current_balance).into());
         }

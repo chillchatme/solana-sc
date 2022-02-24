@@ -1,6 +1,7 @@
+use chill_client::error::ClientError;
 use colored::Colorize;
 use solana_client::{
-    client_error::{ClientError, ClientErrorKind},
+    client_error::{ClientError as RpcClientError, ClientErrorKind},
     rpc_request::{RpcError, RpcResponseErrorData},
     rpc_response::RpcSimulateTransactionResult,
 };
@@ -14,14 +15,11 @@ use thiserror::Error;
 #[derive(Debug)]
 pub enum AppError {
     InternalError(anyhow::Error),
-    RpcError(ClientError),
+    RpcError(RpcClientError),
 }
 
 #[derive(Error, Debug)]
 pub enum CliError {
-    #[error("Cannot airdrop {0} SOL")]
-    CannotAirdrop(f64),
-
     #[error("Cannot parse pubkey from the file '{0}' - {1}")]
     CannotParseFile(String, String),
 
@@ -37,9 +35,6 @@ pub enum CliError {
     #[error("Cannot overwrite existing file \"{0}\"")]
     MintFileExists(String),
 
-    #[error("Mint '{0}' not found. Please specify the correct mint address with '--mint-address' argument")]
-    MintNotFound(Pubkey),
-
     #[error("Please specify a mint address with '--mint-address' argument")]
     MintNotSpecified,
 
@@ -49,14 +44,8 @@ pub enum CliError {
     #[error("Mint '{0}' has another owner")]
     OwnerNotMatch(Pubkey),
 
-    #[error("Token is not initialized for owner '{0}' and mint '{1}'")]
-    TokenNotInitialized(Pubkey, Pubkey),
-
     #[error("Cannot transfer zero tokens")]
     TransferZeroTokens,
-
-    #[error("Data cannot be parsed as config")]
-    ConfigDataError,
 }
 
 impl std::error::Error for AppError {}
@@ -87,14 +76,17 @@ impl From<ParsePubkeyError> for AppError {
 
 impl From<ClientError> for AppError {
     fn from(error: ClientError) -> Self {
-        AppError::RpcError(error)
+        match error {
+            ClientError::RpcError(e) => AppError::RpcError(e),
+            ClientError::Custom(e) => AppError::InternalError(e.into()),
+        }
     }
 }
 
 impl AppError {
     fn client_logs(&self) -> Option<&Vec<String>> {
         match self {
-            AppError::RpcError(ClientError {
+            AppError::RpcError(RpcClientError {
                 kind:
                     ClientErrorKind::RpcError(RpcError::RpcResponseError {
                         data:

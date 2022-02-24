@@ -1,15 +1,10 @@
 [package]
-name = "chill-cli"
+name = "chill-client"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-anyhow = "1.0.53"
-chill = {path = "../program"}
-clap = "2.33.0"
-colored = "2.0.0"
-dirs = "4.0.0"
-solana-clap-utils = "1.9.5"
+chill-api = {path = "../chill-rs-api"}
 solana-client = "1.9.5"
 solana-sdk = "1.9.5"
 spl-associated-token-account = {version = "1.0.3", features = ["no-entrypoint"]}
