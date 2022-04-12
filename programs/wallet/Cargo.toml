@@ -1,0 +1,20 @@
+[package]
+name = "chill-wallet"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "chill_wallet"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+
+[dependencies]
+anchor-lang = "=0.23.0"
+anchor-spl = "=0.23.0"
+mpl-token-metadata = { version = "1.1.*", features = ["no-entrypoint"] }

@@ -2,3 +2,5 @@
 Cargo.lock
 *.pubkey
 __pycache__/
+node_modules/
+.anchor/
