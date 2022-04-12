@@ -44,7 +44,7 @@ impl Client {
         payer: Pubkey,
         signers: &impl Signers,
     ) -> Result<Signature> {
-        let blockhash = self.client.get_latest_blockhash()?;
+        let (blockhash, _) = self.client.get_recent_blockhash()?;
         let transaction =
             Transaction::new_signed_with_payer(instructions, Some(&payer), signers, blockhash);
         self.client
@@ -54,7 +54,7 @@ impl Client {
 
     pub fn airdrop(&self, address: Pubkey, lamports: u64) -> Result<()> {
         let signature = self.client.request_airdrop(&address, lamports)?;
-        let blockhash = self.client.get_latest_blockhash()?;
+        let (blockhash, _) = self.client.get_recent_blockhash()?;
         self.client
             .confirm_transaction_with_spinner(&signature, &blockhash, CommitmentConfig::confirmed())
             .map_err(|e| e.into())

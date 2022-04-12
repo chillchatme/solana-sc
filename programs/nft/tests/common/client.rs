@@ -34,12 +34,13 @@ pub struct Client {
 
 impl Client {
     pub fn new() -> Self {
-        let rpc_client = RpcClient::new_with_commitment(RPC_URL, CommitmentConfig::confirmed());
+        let rpc_client =
+            RpcClient::new_with_commitment(RPC_URL.to_string(), CommitmentConfig::confirmed());
         Self { rpc_client }
     }
 
     pub fn airdrop(&self, address: Pubkey, lamports: u64) -> Result<()> {
-        let blockhash = self.rpc_client.get_latest_blockhash()?;
+        let (blockhash, _) = self.rpc_client.get_recent_blockhash()?;
         let _guard;
 
         if RPC_URL.contains("localhost") {
@@ -86,7 +87,7 @@ impl Client {
         payer: Pubkey,
         signers: &impl Signers,
     ) -> Result<Signature> {
-        let blockhash = self.rpc_client.get_latest_blockhash()?;
+        let (blockhash, _) = self.rpc_client.get_recent_blockhash()?;
         let transaction =
             Transaction::new_signed_with_payer(instructions, Some(&payer), signers, blockhash);
 
