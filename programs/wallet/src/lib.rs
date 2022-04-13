@@ -1,5 +1,6 @@
 use anchor_lang::{prelude::*, solana_program::program::invoke};
-use anchor_spl::token::{spl_token::instruction::sync_native, Mint, Token, TokenAccount};
+use anchor_spl::token::{Mint, Token, TokenAccount};
+use spl_token::instruction::sync_native;
 use state::ProxyWallet;
 use utils::{check_authority, transfer_tokens};
 
