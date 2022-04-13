@@ -1,5 +1,5 @@
-use anchor_lang::prelude::*;
-use anchor_spl::token::{Mint, Token, TokenAccount};
+use anchor_lang::{prelude::*, solana_program::program::invoke};
+use anchor_spl::token::{spl_token::instruction::sync_native, Mint, Token, TokenAccount};
 use state::ProxyWallet;
 use utils::{check_authority, transfer_tokens};
 
@@ -28,9 +28,11 @@ pub mod chill_wallet {
         let proxy_wallet_info = ctx.accounts.proxy_wallet.to_account_info();
         let receiver_info = ctx.accounts.receiver.to_account_info();
 
-        if proxy_wallet_info.key() == receiver_info.key() {
-            return Ok(());
-        }
+        require_keys_neq!(
+            proxy_wallet_info.key(),
+            receiver_info.key(),
+            ErrorCode::SendingToYourself
+        );
 
         let rent = Rent::get()?;
         let minimum_balance = rent.minimum_balance(ProxyWallet::LEN);
@@ -71,9 +73,24 @@ pub mod chill_wallet {
         let proxy_wallet = &mut ctx.accounts.proxy_wallet;
         let proxy_wallet_token_account = &ctx.accounts.proxy_wallet_token_account;
         let receiver_token_account = &ctx.accounts.receiver_token_account;
+        let authority_key = ctx.accounts.authority.key();
+        let is_native = proxy_wallet_token_account.is_native();
 
-        if proxy_wallet_token_account.key() == receiver_token_account.key() {
-            return Ok(());
+        require_keys_neq!(
+            proxy_wallet_token_account.key(),
+            receiver_token_account.key(),
+            ErrorCode::SendingToYourself
+        );
+
+        if is_native {
+            let token_program = &ctx.accounts.token_program;
+            invoke(
+                &sync_native(&token_program.key(), &proxy_wallet_token_account.key())?,
+                &[
+                    proxy_wallet_token_account.to_account_info(),
+                    token_program.to_account_info(),
+                ],
+            )?;
         }
 
         transfer_tokens(
@@ -84,17 +101,30 @@ pub mod chill_wallet {
             amount,
         )?;
 
-        let authority_key = ctx.accounts.authority.key();
-        if authority_key == proxy_wallet.primary_wallet {
-            proxy_wallet.total_ft_withdrawn_primary_wallet = proxy_wallet
-                .total_ft_withdrawn_primary_wallet
-                .checked_add(amount)
-                .unwrap();
+        if is_native {
+            if authority_key == proxy_wallet.primary_wallet {
+                proxy_wallet.total_money_withdrawn_primary_wallet = proxy_wallet
+                    .total_money_withdrawn_primary_wallet
+                    .checked_add(amount)
+                    .unwrap();
+            } else {
+                proxy_wallet.total_money_withdrawn_user = proxy_wallet
+                    .total_money_withdrawn_user
+                    .checked_add(amount)
+                    .unwrap();
+            }
         } else {
-            proxy_wallet.total_ft_withdrawn_user = proxy_wallet
-                .total_ft_withdrawn_user
-                .checked_add(amount)
-                .unwrap();
+            if authority_key == proxy_wallet.primary_wallet {
+                proxy_wallet.total_ft_withdrawn_primary_wallet = proxy_wallet
+                    .total_ft_withdrawn_primary_wallet
+                    .checked_add(amount)
+                    .unwrap();
+            } else {
+                proxy_wallet.total_ft_withdrawn_user = proxy_wallet
+                    .total_ft_withdrawn_user
+                    .checked_add(amount)
+                    .unwrap();
+            }
         }
 
         Ok(())
@@ -106,9 +136,11 @@ pub mod chill_wallet {
         let proxy_wallet_token_account = &ctx.accounts.proxy_wallet_token_account;
         let receiver_token_account = &ctx.accounts.receiver_token_account;
 
-        if proxy_wallet_token_account.key() == receiver_token_account.key() {
-            return Ok(());
-        }
+        require_keys_neq!(
+            proxy_wallet_token_account.key(),
+            receiver_token_account.key(),
+            ErrorCode::SendingToYourself
+        );
 
         transfer_tokens(
             proxy_wallet,
@@ -205,6 +237,9 @@ pub struct WithdrawNft<'info> {
 
 #[error_code]
 pub enum ErrorCode {
+    #[msg("You try to send tokens to the proxy wallet")]
+    SendingToYourself,
+
     #[msg("Insufficient funds")]
     InsufficientFunds,
 
