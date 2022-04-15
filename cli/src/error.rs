@@ -1,14 +1,16 @@
-use chill_nft::error::ChillNftError;
+use anchor_client::{
+    solana_client::{
+        client_error::{ClientError, ClientErrorKind},
+        rpc_request::{RpcError, RpcResponseErrorData},
+        rpc_response::RpcSimulateTransactionResult,
+    },
+    solana_sdk::{
+        program_error::ProgramError,
+        pubkey::{ParsePubkeyError, Pubkey},
+    },
+    ClientError as AnchorClientError,
+};
 use colored::Colorize;
-use solana_client::{
-    client_error::{ClientError, ClientErrorKind},
-    rpc_request::{RpcError, RpcResponseErrorData},
-    rpc_response::RpcSimulateTransactionResult,
-};
-use solana_sdk::{
-    program_error::ProgramError,
-    pubkey::{ParsePubkeyError, Pubkey},
-};
 use std::fmt::Display;
 use thiserror::Error;
 
@@ -16,6 +18,7 @@ use thiserror::Error;
 pub enum AppError {
     InternalError(anyhow::Error),
     ClientError(ClientError),
+    AnchorClientError(AnchorClientError),
 }
 
 #[derive(Error, Debug)]
@@ -61,6 +64,12 @@ pub enum CliError {
 
     #[error("Cannot write data to the file '{0}'")]
     CannotWriteToFile(String),
+
+    #[error("Cannot get primary wallet: {0}")]
+    CannotGetPrimaryWallet(String),
+
+    #[error("Cannot get payer: {0}")]
+    CannotGetPayer(String),
 
     #[error("Cannot get authority: {0}")]
     CannotGetAuthority(String),
@@ -116,60 +125,77 @@ impl From<ClientError> for AppError {
     }
 }
 
+impl From<AnchorClientError> for AppError {
+    fn from(error: AnchorClientError) -> Self {
+        AppError::AnchorClientError(error)
+    }
+}
+
 impl From<ParsePubkeyError> for AppError {
     fn from(error: ParsePubkeyError) -> Self {
         AppError::InternalError(error.into())
     }
 }
 
-impl From<ChillNftError> for AppError {
-    fn from(error: ChillNftError) -> Self {
-        AppError::InternalError(error.into())
+impl From<anyhow::Error> for AppError {
+    fn from(error: anyhow::Error) -> Self {
+        AppError::InternalError(error)
     }
 }
 
-impl AppError {
-    fn client_logs(&self) -> Option<&Vec<String>> {
-        match self {
-            AppError::ClientError(ClientError {
-                kind:
-                    ClientErrorKind::RpcError(RpcError::RpcResponseError {
-                        data:
-                            RpcResponseErrorData::SendTransactionPreflightFailure(
-                                RpcSimulateTransactionResult {
-                                    logs: Some(ref logs),
-                                    ..
-                                },
-                            ),
-                        ..
-                    }),
-                ..
-            }) => Some(logs),
-            _ => None,
-        }
+fn extract_logs(client_error: &ClientError) -> Option<Vec<String>> {
+    match client_error {
+        ClientError {
+            kind:
+                ClientErrorKind::RpcError(RpcError::RpcResponseError {
+                    data:
+                        RpcResponseErrorData::SendTransactionPreflightFailure(
+                            RpcSimulateTransactionResult {
+                                logs: Some(logs), ..
+                            },
+                        ),
+                    ..
+                }),
+            ..
+        } => Some(logs.clone()),
+        _ => None,
     }
 }
 
 impl Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
+        let logs;
+        match &self {
             AppError::InternalError(e) => {
-                write!(f, "{} {}", "Error:".red(), e)
+                write!(f, "{} {}", "Error:".red(), e)?;
+                logs = None;
+            }
+            AppError::AnchorClientError(e) => {
+                write!(f, "{} {}", "Error:".red(), e)?;
+                match e {
+                    AnchorClientError::SolanaClientError(client_error) => {
+                        logs = extract_logs(client_error);
+                    }
+                    _ => logs = None,
+                }
             }
             AppError::ClientError(e) => {
                 write!(f, "{} {}", "Error:".red(), e)?;
-                if let Some(logs) = self.client_logs() {
-                    if !logs.is_empty() {
-                        writeln!(f, "\n{}", "[LOGS]".cyan())?;
-                        for log in logs.iter().take(logs.len() - 1) {
-                            writeln!(f, "{}", log)?;
-                        }
-                        write!(f, "{}", logs.last().unwrap())?;
-                    }
-                }
-                Ok(())
+                logs = extract_logs(e);
             }
         }
+
+        if let Some(logs) = logs {
+            if !logs.is_empty() {
+                writeln!(f, "\n{}", "[LOGS]".cyan())?;
+                for log in logs.iter().take(logs.len() - 1) {
+                    writeln!(f, "{}", log)?;
+                }
+                write!(f, "{}", logs.last().unwrap())?;
+            }
+        }
+
+        Ok(())
     }
 }
 

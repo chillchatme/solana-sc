@@ -3,20 +3,13 @@ use crate::{
     client::Client,
     error::{AppError, CliError, Result},
 };
-use chill_nft::state::{Config, Fees};
-use colored::Colorize;
-use solana_sdk::{
-    native_token::sol_to_lamports,
-    program_option::COption,
-    pubkey::Pubkey,
-    signature::{read_keypair_file, write_keypair_file, Keypair, Signature},
+use anchor_client::solana_sdk::{
+    native_token::sol_to_lamports, program_option::COption, pubkey::Pubkey, signature::Signature,
     signer::Signer,
 };
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    process::exit,
-};
+use chill_nft::state::Fees;
+use colored::Colorize;
+use std::{fs, path::Path, process::exit, rc::Rc};
 
 pub struct App<'cli> {
     cli: Cli<'cli>,
@@ -27,49 +20,13 @@ impl App<'_> {
     pub fn init() -> Self {
         let cli = Cli::init();
         let client = Client::init(cli.rpc_url());
+
         App { cli, client }
     }
 
     fn on_error(&self, error: AppError) -> ! {
         println!("{}", error);
         exit(1);
-    }
-
-    fn default_keypair_path(&self) -> PathBuf {
-        let mut keypair_path = dirs::home_dir().unwrap();
-        keypair_path.push(".config");
-        keypair_path.push("solana");
-        keypair_path.push("id.json");
-        keypair_path
-    }
-
-    fn get_default_keypair(&self) -> Result<Box<dyn Signer>> {
-        let keypair_path = self.default_keypair_path();
-        let keypair_filename = keypair_path.clone().into_os_string().into_string().unwrap();
-
-        if keypair_path.is_file() {
-            let keypair = read_keypair_file(keypair_path)
-                .map_err(|e| CliError::CannotParseFile(keypair_filename, e.to_string()))?;
-            Ok(Box::new(keypair))
-        } else {
-            Err(CliError::AuthorityNotFound.into())
-        }
-    }
-
-    fn get_or_create_default_keypair(&self) -> Result<Box<dyn Signer>> {
-        if let Ok(keypair) = self.get_default_keypair() {
-            return Ok(keypair);
-        }
-
-        let keypair_path = self.default_keypair_path();
-        let keypair_filename = keypair_path.clone().into_os_string().into_string().unwrap();
-        let new_keypair = Keypair::new();
-        write_keypair_file(&new_keypair, keypair_path)
-            .map_err(|_| CliError::CannotWriteToFile(keypair_filename.clone()))?;
-
-        println!("{0} \"{1}\"", "Keypair file:".yellow(), keypair_filename);
-
-        Ok(Box::new(new_keypair))
     }
 
     fn try_to_airdrop(&self, address: Pubkey) -> Result<()> {
@@ -85,27 +42,6 @@ impl App<'_> {
         Ok(())
     }
 
-    fn get_authority_pubkey(&self) -> Result<Pubkey> {
-        match self.cli.authority_pubkey() {
-            Some(authority) => Ok(authority),
-            None => Ok(self.get_default_keypair()?.pubkey()),
-        }
-    }
-
-    fn get_authority(&self) -> Result<Box<dyn Signer>> {
-        match self.cli.authority()? {
-            Some(authority) => Ok(authority),
-            None => self.get_default_keypair(),
-        }
-    }
-
-    fn get_or_create_authority(&self) -> Result<Box<dyn Signer>> {
-        match self.cli.authority()? {
-            Some(authority) => Ok(authority),
-            None => self.get_or_create_default_keypair(),
-        }
-    }
-
     fn save_mint(&self, mint: Pubkey) -> Result<()> {
         let save_path = self.cli.save_path();
 
@@ -115,7 +51,7 @@ impl App<'_> {
         let path = Path::new(save_path);
         let full_path = fs::canonicalize(path).unwrap();
         let full_path_str = full_path.as_os_str().to_str().unwrap();
-        println!("{0} \"{1}\"", "Mint file:".cyan(), full_path_str);
+        println!("{} \"{}\"", "Mint file:".cyan(), full_path_str);
         Ok(())
     }
 
@@ -135,7 +71,12 @@ impl App<'_> {
         }
     }
 
-    fn get_or_create_mint(&self, authority: &dyn Signer, decimals: u8) -> Result<Pubkey> {
+    fn get_or_create_mint(
+        &self,
+        authority: Rc<dyn Signer>,
+        payer: Rc<dyn Signer>,
+        decimals: u8,
+    ) -> Result<Pubkey> {
         if let Some(mint) = self.cli.mint()? {
             self.assert_mint_authority(mint, authority.pubkey())?;
             return Ok(mint);
@@ -149,8 +90,8 @@ impl App<'_> {
             return Err(CliError::MintFileExists(full_path_str.to_owned()).into());
         }
 
-        let mint = self.client.create_mint(authority, decimals)?;
-        println!("{0} {1}", "Mint:".cyan(), mint);
+        let mint = self.client.create_mint(authority, payer, decimals)?;
+        println!("{} {}", "Mint:".cyan(), mint);
 
         self.save_mint(mint)?;
         Ok(mint)
@@ -167,8 +108,8 @@ impl App<'_> {
         Ok(())
     }
 
-    fn print_info(&self, program_id: Pubkey, mint: Pubkey) -> Result<()> {
-        let config = self.client.config(program_id, mint)?;
+    fn print_info(&self, mint: Pubkey) -> Result<()> {
+        let config = self.client.config(mint)?;
         let mint_account = self.client.mint_account(mint)?;
 
         println!(
@@ -184,6 +125,7 @@ impl App<'_> {
         println!("{0:>10} {1}", "Emote:".cyan(), fees.emote);
         println!("{0:>10} {1}", "Tileset:".cyan(), fees.tileset);
         println!("{0:>10} {1}", "Item:".cyan(), fees.item);
+        println!("{0:>10} {1}", "World:".cyan(), fees.world);
 
         let recipients = config.recipients;
         if !recipients.is_empty() {
@@ -210,106 +152,90 @@ impl App<'_> {
     }
 
     fn process_mint(&self) -> Result<()> {
-        let authority = self.get_or_create_authority()?;
-        self.try_to_airdrop(authority.pubkey())?;
+        let primary_wallet = self.cli.primary_wallet()?;
+        let payer = self.cli.payer()?;
+        let recipient = self.cli.recipient();
+
+        self.try_to_airdrop(payer.pubkey())?;
 
         let decimals = self.cli.decimals();
-        let mint = self.get_or_create_mint(authority.as_ref(), decimals)?;
-
-        let recipient = self
-            .cli
-            .recipient_pubkey()
-            .unwrap_or_else(|| authority.pubkey());
+        let mint = self.get_or_create_mint(primary_wallet.clone(), payer.clone(), decimals)?;
 
         let token_account_pubkey =
             self.client
-                .get_or_create_token_account(authority.as_ref(), recipient, mint)?;
+                .get_or_create_token_account(recipient, mint, payer.clone())?;
 
         let ui_amount = self.cli.ui_amount();
         let amount = spl_token::ui_amount_to_amount(ui_amount, decimals);
+
         self.client
-            .mint_to(authority.as_ref(), mint, token_account_pubkey, amount)?;
+            .mint_to(primary_wallet, payer, mint, token_account_pubkey, amount)?;
 
         self.print_balance(recipient, mint)
     }
 
     fn process_mint_nft(&self) -> Result<()> {
-        let authority = self.get_authority()?;
+        let payer = self.cli.payer()?;
+        let primary_wallet = self.cli.primary_wallet()?;
+        let recipient = self.cli.recipient();
+        let creator = self.cli.creator();
 
-        let recipient_signer = self.cli.recipient();
-        let nft_recipient = match recipient_signer {
-            Ok(Some(ref signer)) => signer,
-            _ => &authority,
-        };
+        self.try_to_airdrop(payer.pubkey())?;
 
         let mint_chill = self.get_mint()?;
-        let recipient_token_account = self.client.get_or_create_token_account(
-            nft_recipient.as_ref(),
-            nft_recipient.pubkey(),
-            mint_chill,
-        )?;
-
-        let program_id = self.cli.program_id();
         let args = self.cli.mint_args()?;
+        let nft_type = self.cli.nft_type();
 
-        let (nft_mint, nft_token) = self
-            .client
-            .create_mint_and_token_nft(authority.as_ref(), nft_recipient.as_ref())?;
+        let (nft_mint, _nft_token) = self.client.create_mint_and_token_nft(
+            primary_wallet.clone(),
+            payer.clone(),
+            recipient,
+        )?;
 
         println!("{0} {1}", "NFT Mint:".green(), nft_mint);
+
         let signature = self.client.mint_nft(
-            program_id,
-            authority.as_ref(),
-            nft_recipient.as_ref(),
+            primary_wallet,
+            payer,
             mint_chill,
-            recipient_token_account,
+            creator,
             nft_mint,
-            nft_token,
+            nft_type,
             args,
         )?;
+
         self.print_signature(&signature);
-
-        let recipient_pubkey_opt = self.cli.recipient_pubkey();
-        if recipient_pubkey_opt.is_none() {
-            return Ok(());
-        }
-
-        let recipient_pubkey = recipient_pubkey_opt.unwrap();
-        if recipient_pubkey != nft_recipient.pubkey() {
-            println!("\n{} '{}'", "Transfer NFT to".green(), recipient_pubkey);
-            let signature =
-                self.client
-                    .transfer_tokens(authority.as_ref(), nft_mint, recipient_pubkey, 1)?;
-            self.print_signature(&signature);
-        }
 
         Ok(())
     }
 
     fn process_print_info(&self) -> Result<()> {
         let mint = self.get_mint()?;
-        let program_id = self.cli.program_id();
-        self.print_info(program_id, mint)
+        self.print_info(mint)
     }
 
     fn process_print_balance(&self) -> Result<()> {
-        let authority = self.get_authority_pubkey()?;
+        let account = self.cli.account();
         let mint = self.get_mint()?;
-        self.print_balance(authority, mint)
+        self.print_balance(account, mint)
     }
 
     fn process_transfer(&self) -> Result<()> {
-        let authority = self.get_authority()?;
+        let primary_wallet = self.cli.primary_wallet()?;
+        let payer = self.cli.payer()?;
         let mint = self.get_mint()?;
 
         let ui_amount = self.cli.ui_amount();
-        let recipient = self.cli.recipient_pubkey().unwrap();
+        let recipient = self.cli.recipient();
 
         if ui_amount == 0.0 {
             return Err(CliError::TransferZeroTokens.into());
         }
 
-        let current_balance = self.client.ui_token_balance(authority.pubkey(), mint)?;
+        let current_balance = self
+            .client
+            .ui_token_balance(primary_wallet.pubkey(), mint)?;
+
         if ui_amount > current_balance {
             return Err(CliError::InsufficientTokens(ui_amount, current_balance).into());
         }
@@ -318,31 +244,32 @@ impl App<'_> {
         let decimals = mint_account.decimals;
         let amount = spl_token::ui_amount_to_amount(ui_amount, decimals);
 
-        let signature = self
-            .client
-            .transfer_tokens(authority.as_ref(), mint, recipient, amount)?;
+        let primary_wallet_pubkey = primary_wallet.pubkey();
+        let signature =
+            self.client
+                .transfer_tokens(primary_wallet, payer, mint, recipient, amount)?;
 
         self.print_signature(&signature);
-        self.print_balance(authority.pubkey(), mint)
+        self.print_balance(primary_wallet_pubkey, mint)
     }
 
     pub fn initialize(&self) -> Result<()> {
-        let authority = self.get_authority()?;
+        let payer = self.cli.payer()?;
+        let primary_wallet = self.cli.primary_wallet()?;
         let mint = self.get_mint()?;
-        self.assert_mint_authority(mint, authority.pubkey())?;
+
+        self.assert_mint_authority(mint, primary_wallet.pubkey())?;
 
         let ui_fees = self.cli.fees();
-        let program_id = self.cli.program_id();
 
         let recipients = self.cli.multiple_recipients()?;
-        Config::check_recipients(&recipients)?;
-
         let mint_account = self.client.mint_account(mint)?;
         let fees = Fees::from_ui(ui_fees, mint_account.decimals);
 
         self.client
-            .initialize(program_id, authority.as_ref(), mint, fees, recipients)?;
-        self.print_info(program_id, mint)
+            .initialize(primary_wallet, payer, mint, fees, recipients)?;
+
+        self.print_info(mint)
     }
 
     pub fn run(&self) {
@@ -353,6 +280,7 @@ impl App<'_> {
             CliCommand::Mint => self.process_mint(),
             CliCommand::MintNft => self.process_mint_nft(),
             CliCommand::Transfer => self.process_transfer(),
+            _ => Ok(()),
         };
 
         if let Err(error) = result {

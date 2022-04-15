@@ -1,41 +1,66 @@
-use crate::error::{CliError, Result};
+use crate::{
+    error::{CliError, Result},
+    pda,
+};
+use anchor_client::{
+    anchor_lang::AccountDeserialize,
+    solana_client::{rpc_client::RpcClient, rpc_request::TokenAccountsFilter},
+    solana_sdk::{
+        commitment_config::CommitmentConfig,
+        instruction::{AccountMeta, Instruction},
+        program_pack::Pack,
+        pubkey::Pubkey,
+        rent::Rent,
+        signature::{Keypair, Signature},
+        signer::Signer,
+        signers::Signers,
+        system_instruction, system_program,
+        sysvar::SysvarId,
+        transaction::Transaction,
+    },
+    Client as AnchorClient, Cluster, Program,
+};
 use chill_nft::{
     self,
-    instruction::{self, InitializeArgs, MintNftArgs},
-    state::{ChillNftMetadata, Config, Fees, Recipient, AUTHORITY_SHARE},
-    utils::pda,
+    state::{ChillNftMetadata, Config, Fees, NftType, Recipient, AUTHORITY_SHARE},
+    utils::NftArgs,
 };
 use mpl_token_metadata::{
     state::{Creator, DataV2, Key, Metadata, TokenStandard, MAX_METADATA_LEN},
     utils::try_from_slice_checked,
-};
-use solana_client::{rpc_client::RpcClient, rpc_request::TokenAccountsFilter};
-use solana_sdk::{
-    commitment_config::CommitmentConfig,
-    instruction::Instruction,
-    program_pack::Pack,
-    pubkey::Pubkey,
-    signature::{Keypair, Signature},
-    signer::Signer,
-    signers::Signers,
-    system_instruction,
-    transaction::Transaction,
 };
 use spl_associated_token_account::{create_associated_token_account, get_associated_token_address};
 use spl_token::{
     amount_to_ui_amount, instruction as spl_instruction,
     state::{Account, Mint},
 };
-use std::{convert::TryInto, str::FromStr};
+use std::{convert::TryInto, rc::Rc, str::FromStr};
 
 pub struct Client {
-    client: RpcClient,
+    url: String,
+    commitment: CommitmentConfig,
+    rpc_client: RpcClient,
 }
 
 impl Client {
     pub fn init(url: &str) -> Self {
-        let client = RpcClient::new_with_commitment(url.to_owned(), CommitmentConfig::confirmed());
-        Self { client }
+        let commitment = CommitmentConfig::confirmed();
+
+        Self {
+            url: url.to_string(),
+            commitment,
+            rpc_client: RpcClient::new_with_commitment(url, commitment),
+        }
+    }
+
+    pub fn program(&self, payer: Rc<dyn Signer>, program_id: Pubkey) -> Result<Program> {
+        let cluster = Cluster::from_str(&self.url)?;
+        let anchor_client = AnchorClient::new_with_options(cluster, payer, self.commitment);
+        Ok(anchor_client.program(program_id))
+    }
+
+    pub fn rpc(&self) -> RpcClient {
+        RpcClient::new_with_commitment(&self.url, self.commitment)
     }
 
     fn run_transaction(
@@ -44,24 +69,24 @@ impl Client {
         payer: Pubkey,
         signers: &impl Signers,
     ) -> Result<Signature> {
-        let blockhash = self.client.get_latest_blockhash()?;
+        let blockhash = self.rpc_client.get_latest_blockhash()?;
         let transaction =
             Transaction::new_signed_with_payer(instructions, Some(&payer), signers, blockhash);
-        self.client
+        self.rpc_client
             .send_and_confirm_transaction(&transaction)
             .map_err(|e| e.into())
     }
 
     pub fn airdrop(&self, address: Pubkey, lamports: u64) -> Result<()> {
-        let signature = self.client.request_airdrop(&address, lamports)?;
-        let blockhash = self.client.get_latest_blockhash()?;
-        self.client
+        let signature = self.rpc_client.request_airdrop(&address, lamports)?;
+        let blockhash = self.rpc_client.get_latest_blockhash()?;
+        self.rpc_client
             .confirm_transaction_with_spinner(&signature, &blockhash, CommitmentConfig::confirmed())
             .map_err(|e| e.into())
     }
 
     pub fn balance(&self, address: Pubkey) -> Result<u64> {
-        self.client.get_balance(&address).map_err(|e| e.into())
+        self.rpc_client.get_balance(&address).map_err(|e| e.into())
     }
 
     //
@@ -69,12 +94,14 @@ impl Client {
     //
 
     pub fn account_data(&self, address: Pubkey) -> Result<Vec<u8>> {
-        self.client.get_account_data(&address).map_err(|e| e.into())
+        self.rpc_client
+            .get_account_data(&address)
+            .map_err(|e| e.into())
     }
 
     pub fn mint_account(&self, address: Pubkey) -> Result<Mint> {
         let data = self
-            .client
+            .rpc_client
             .get_account_data(&address)
             .map_err(|_| CliError::MintNotFound(address))?;
         let mint = Mint::unpack(&data).map_err(|_| CliError::AccountIsNotMint)?;
@@ -83,7 +110,7 @@ impl Client {
 
     pub fn token_account(&self, address: Pubkey) -> Result<Account> {
         let data = self
-            .client
+            .rpc_client
             .get_account_data(&address)
             .map_err(|_| CliError::TokenNotInitialized(address))?;
 
@@ -93,9 +120,9 @@ impl Client {
     }
 
     pub fn metadata_account(&self, mint: Pubkey) -> Result<Metadata> {
-        let metadata_pubkey = pda::metadata(&mint);
+        let metadata_pubkey = pda::metadata(mint);
         let data = self
-            .client
+            .rpc_client
             .get_account_data(&metadata_pubkey)
             .map_err(|_| CliError::MetadataNotFound(mint))?;
 
@@ -103,24 +130,26 @@ impl Client {
             .map_err(|_| CliError::AccountIsNotMetadata.into())
     }
 
-    pub fn config(&self, program_id: Pubkey, mint: Pubkey) -> Result<Config> {
-        let config_pubkey = pda::config(&mint, &program_id).0;
+    pub fn config(&self, mint: Pubkey) -> Result<Config> {
+        let config_pubkey = pda::config(mint);
+
         let config_data = self
-            .client
+            .rpc_client
             .get_account_data(&config_pubkey)
             .map_err(|_| CliError::ConfigNotFound)?;
 
-        Config::unpack(&config_data).map_err(|_| CliError::ConfigDataError.into())
+        Config::try_deserialize(&mut config_data.as_ref())
+            .map_err(|_| CliError::ConfigDataError.into())
     }
 
-    pub fn chill_metadata(&self, program_id: Pubkey, nft_mint: Pubkey) -> Result<ChillNftMetadata> {
-        let chill_metadata_pubkey = pda::chill_metadata(&nft_mint, &program_id).0;
+    pub fn chill_metadata(&self, nft_mint: Pubkey) -> Result<ChillNftMetadata> {
+        let chill_metadata_pubkey = pda::chill_metadata(nft_mint);
         let chill_metadata_data = self
-            .client
+            .rpc_client
             .get_account_data(&chill_metadata_pubkey)
             .map_err(|_| CliError::ChillMetadataNotFound)?;
 
-        ChillNftMetadata::unpack(&chill_metadata_data)
+        ChillNftMetadata::try_deserialize(&mut chill_metadata_data.as_ref())
             .map_err(|_| CliError::ChillMetadataDataError.into())
     }
 
@@ -130,17 +159,21 @@ impl Client {
 
     pub fn create_mint_and_token_nft(
         &self,
-        authority: &dyn Signer,
-        recipient: &dyn Signer,
+        primary_wallet: Rc<dyn Signer>,
+        payer: Rc<dyn Signer>,
+        recipient: Pubkey,
     ) -> Result<(Pubkey, Pubkey)> {
         let mint = Keypair::new();
-        let token = get_associated_token_address(&recipient.pubkey(), &mint.pubkey());
+        let token = get_associated_token_address(&recipient, &mint.pubkey());
 
         let space = Mint::LEN;
-        let lamports = self.client.get_minimum_balance_for_rent_exemption(space)?;
+        let lamports = self
+            .rpc_client
+            .get_minimum_balance_for_rent_exemption(space)?;
+
         let ixs = &[
             system_instruction::create_account(
-                &recipient.pubkey(),
+                &payer.pubkey(),
                 &mint.pubkey(),
                 lamports,
                 space.try_into().unwrap(),
@@ -149,38 +182,47 @@ impl Client {
             spl_instruction::initialize_mint(
                 &spl_token::ID,
                 &mint.pubkey(),
-                &authority.pubkey(),
+                &primary_wallet.pubkey(),
                 None,
                 0,
             )
             .unwrap(),
-            create_associated_token_account(
-                &recipient.pubkey(),
-                &recipient.pubkey(),
-                &mint.pubkey(),
-            ),
+            create_associated_token_account(&payer.pubkey(), &recipient, &mint.pubkey()),
             spl_instruction::mint_to(
                 &spl_token::ID,
                 &mint.pubkey(),
                 &token,
-                &authority.pubkey(),
+                &primary_wallet.pubkey(),
                 &[],
                 1,
             )
             .unwrap(),
         ];
 
-        self.run_transaction(ixs, recipient.pubkey(), &[&mint, recipient, authority])?;
+        self.run_transaction(
+            ixs,
+            payer.pubkey(),
+            &[&mint, payer.as_ref(), primary_wallet.as_ref()],
+        )?;
+
         Ok((mint.pubkey(), token))
     }
 
-    pub fn create_mint(&self, authority: &dyn Signer, decimals: u8) -> Result<Pubkey> {
+    pub fn create_mint(
+        &self,
+        authority: Rc<dyn Signer>,
+        payer: Rc<dyn Signer>,
+        decimals: u8,
+    ) -> Result<Pubkey> {
         let mint = Keypair::new();
         let space = Mint::LEN;
-        let lamports = self.client.get_minimum_balance_for_rent_exemption(space)?;
+        let lamports = self
+            .rpc_client
+            .get_minimum_balance_for_rent_exemption(space)?;
+
         let ixs = &[
             system_instruction::create_account(
-                &authority.pubkey(),
+                &payer.pubkey(),
                 &mint.pubkey(),
                 lamports,
                 space.try_into().unwrap(),
@@ -195,13 +237,15 @@ impl Client {
             )
             .unwrap(),
         ];
-        self.run_transaction(ixs, authority.pubkey(), &[authority, &mint])?;
+        self.run_transaction(ixs, payer.pubkey(), &[payer.as_ref(), &mint])?;
+
         Ok(mint.pubkey())
     }
 
     pub fn mint_to(
         &self,
-        authority: &dyn Signer,
+        authority: Rc<dyn Signer>,
+        payer: Rc<dyn Signer>,
         mint: Pubkey,
         token: Pubkey,
         amount: u64,
@@ -216,15 +260,15 @@ impl Client {
         )
         .unwrap();
 
-        self.run_transaction(&[ix], authority.pubkey(), &[authority])?;
+        self.run_transaction(&[ix], payer.pubkey(), &[authority.as_ref(), payer.as_ref()])?;
         Ok(())
     }
 
     pub fn get_or_create_token_account(
         &self,
-        payer: &dyn Signer,
         owner: Pubkey,
         mint: Pubkey,
+        payer: Rc<dyn Signer>,
     ) -> Result<Pubkey> {
         if let Some(found_token_pubkey) = self.find_token_address(owner, mint)? {
             return Ok(found_token_pubkey);
@@ -232,13 +276,16 @@ impl Client {
 
         let token_pubkey = get_associated_token_address(&owner, &mint);
         let ix = create_associated_token_account(&payer.pubkey(), &owner, &mint);
-        self.run_transaction(&[ix], payer.pubkey(), &[payer])?;
+        self.run_transaction(&[ix], payer.pubkey(), &[payer.as_ref()])?;
         Ok(token_pubkey)
     }
 
     pub fn find_token_address(&self, address: Pubkey, mint: Pubkey) -> Result<Option<Pubkey>> {
         let filter = TokenAccountsFilter::Mint(mint);
-        let token_accounts = self.client.get_token_accounts_by_owner(&address, filter)?;
+        let token_accounts = self
+            .rpc_client
+            .get_token_accounts_by_owner(&address, filter)?;
+
         if token_accounts.is_empty() {
             return Ok(None);
         }
@@ -259,7 +306,9 @@ impl Client {
 
     pub fn token_balance(&self, owner: Pubkey, mint: Pubkey) -> Result<u64> {
         let filter = TokenAccountsFilter::Mint(mint);
-        let token_accounts = self.client.get_token_accounts_by_owner(&owner, filter)?;
+        let token_accounts = self
+            .rpc_client
+            .get_token_accounts_by_owner(&owner, filter)?;
         let addresses = token_accounts
             .iter()
             .map(|t| Pubkey::from_str(&t.pubkey).unwrap());
@@ -282,12 +331,13 @@ impl Client {
 
     pub fn transfer_tokens(
         &self,
-        authority: &dyn Signer,
+        from: Rc<dyn Signer>,
+        payer: Rc<dyn Signer>,
         mint: Pubkey,
         recipient: Pubkey,
         amount: u64,
     ) -> Result<Signature> {
-        let current_balance = self.token_balance(authority.pubkey(), mint)?;
+        let current_balance = self.token_balance(from.pubkey(), mint)?;
         if amount > current_balance {
             let decimals = self.mint_account(mint)?.decimals;
             let expected = amount_to_ui_amount(amount, decimals);
@@ -295,13 +345,13 @@ impl Client {
             return Err(CliError::NotEnoughTokens(expected, found).into());
         }
 
-        let authority_token_pubkey = get_associated_token_address(&authority.pubkey(), &mint);
+        let authority_token_pubkey = self.find_token_address(from.pubkey(), mint)?.unwrap();
         let recipient_token_account =
-            self.get_or_create_token_account(authority, recipient, mint)?;
-        let mut ixs = Vec::new();
+            self.get_or_create_token_account(recipient, mint, payer.clone())?;
 
+        let mut ixs = Vec::new();
         if let Some(ix) =
-            self.try_set_primary_sale_and_update_creators_ix(authority, mint, recipient)
+            self.try_set_primary_sale_and_update_creators_ix(from.clone(), mint, recipient)
         {
             ixs.push(ix);
         }
@@ -311,19 +361,19 @@ impl Client {
                 &spl_token::ID,
                 &authority_token_pubkey,
                 &recipient_token_account,
-                &authority.pubkey(),
+                &from.pubkey(),
                 &[],
                 amount,
             )
             .unwrap(),
         );
 
-        self.run_transaction(&ixs, authority.pubkey(), &[authority])
+        self.run_transaction(&ixs, payer.pubkey(), &[from.as_ref(), payer.as_ref()])
     }
 
     fn try_set_primary_sale_and_update_creators_ix(
         &self,
-        authority: &dyn Signer,
+        authority: Rc<dyn Signer>,
         nft_mint: Pubkey,
         recipient: Pubkey,
     ) -> Option<Instruction> {
@@ -368,7 +418,7 @@ impl Client {
         Some(
             mpl_token_metadata::instruction::update_metadata_accounts_v2(
                 mpl_token_metadata::ID,
-                pda::metadata(&nft_mint),
+                pda::metadata(nft_mint),
                 authority.pubkey(),
                 None,
                 Some(data),
@@ -384,62 +434,108 @@ impl Client {
 
     pub fn initialize(
         &self,
-        program_id: Pubkey,
-        authority: &dyn Signer,
-        mint: Pubkey,
+        primary_wallet: Rc<dyn Signer>,
+        payer: Rc<dyn Signer>,
+        chill_mint: Pubkey,
         fees: Fees,
         recipients: Vec<Recipient>,
     ) -> Result<Signature> {
-        let args = InitializeArgs { fees, recipients };
-        let ix = instruction::initialize(program_id, authority.pubkey(), mint, args);
-        self.run_transaction(&[ix], authority.pubkey(), &[authority])
+        let program = self.program(payer.clone(), chill_nft::ID)?;
+        let config = pda::config(chill_mint);
+
+        program
+            .request()
+            .args(chill_nft::instruction::Initialize { fees, recipients })
+            .accounts(chill_nft::accounts::Initialize {
+                primary_wallet: primary_wallet.pubkey(),
+                payer: payer.pubkey(),
+                config,
+                chill_mint,
+                system_program: system_program::id(),
+            })
+            .send()
+            .map_err(Into::into)
     }
 
     #[allow(clippy::too_many_arguments)]
     pub fn mint_nft(
         &self,
-        program_id: Pubkey,
-        authority: &dyn Signer,
-        user: &dyn Signer,
-        mint_chill: Pubkey,
-        user_token_account: Pubkey,
+        primary_wallet: Rc<dyn Signer>,
+        payer: Rc<dyn Signer>,
+        chill_mint: Pubkey,
+        creator: Option<Pubkey>,
         nft_mint: Pubkey,
-        nft_token: Pubkey,
-        args: MintNftArgs,
+        nft_type: NftType,
+        args: NftArgs,
     ) -> Result<Signature> {
-        let config = self.config(program_id, mint_chill)?;
-
+        let config = self.config(chill_mint)?;
         let mut recipients_token_accounts = Vec::with_capacity(config.recipients.len());
         for recipient in config.recipients {
-            match self.find_token_address(recipient.address, mint_chill)? {
-                Some(token_address) => recipients_token_accounts.push(token_address),
+            match self.find_token_address(recipient.address, chill_mint)? {
+                Some(token_address) => recipients_token_accounts.push(AccountMeta {
+                    pubkey: token_address,
+                    is_signer: false,
+                    is_writable: true,
+                }),
                 None => {
-                    let token_address =
-                        self.get_or_create_token_account(user, recipient.address, mint_chill)?;
-                    recipients_token_accounts.push(token_address);
+                    let token_address = self.get_or_create_token_account(
+                        recipient.address,
+                        chill_mint,
+                        payer.clone(),
+                    )?;
+
+                    recipients_token_accounts.push(AccountMeta {
+                        pubkey: token_address,
+                        is_signer: false,
+                        is_writable: true,
+                    });
                 }
             };
         }
 
-        let ix = instruction::mint_nft(
-            program_id,
-            authority.pubkey(),
-            user.pubkey(),
-            mint_chill,
-            user_token_account,
-            nft_mint,
-            nft_token,
-            &recipients_token_accounts,
-            args,
-        );
+        let program = self.program(payer.clone(), chill_nft::ID)?;
+        let config_pubkey = pda::config(chill_mint);
 
-        self.run_transaction(&[ix], user.pubkey(), &[authority, user])
+        let nft_metadata = pda::metadata(nft_mint);
+        let nft_master_edition = pda::master_edition(nft_mint);
+        let nft_chill_metadata = pda::chill_metadata(nft_mint);
+
+        let primary_wallet_token = self
+            .find_token_address(primary_wallet.pubkey(), chill_mint)?
+            .unwrap();
+
+        program
+            .request()
+            .args(chill_nft::instruction::MintNft {
+                nft_type,
+                args,
+                creator,
+            })
+            .accounts(chill_nft::accounts::MintNft {
+                primary_wallet: primary_wallet.pubkey(),
+                payer: payer.pubkey(),
+                chill_payer: primary_wallet.pubkey(),
+                chill_payer_token_account: primary_wallet_token,
+                config: config_pubkey,
+                chill_mint,
+                nft_mint,
+                nft_metadata,
+                nft_master_edition,
+                nft_chill_metadata,
+                rent: Rent::id(),
+                system_program: system_program::ID,
+                token_program: spl_token::ID,
+                token_metadata_program: mpl_token_metadata::ID,
+            })
+            .accounts(recipients_token_accounts)
+            .signer(primary_wallet.as_ref())
+            .send()
+            .map_err(Into::into)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use chill_nft::state::NftType;
 
     use super::*;
 
@@ -461,14 +557,13 @@ mod tests {
         let recipients = Vec::new();
         let fees = Fees::default();
         client
-            .initialize(program_id, &authority, mint_chill, fees, recipients)
+            .initialize(program_id, authority.pubkey(), mint_chill, fees, recipients)
             .unwrap();
 
-        let args = MintNftArgs {
-            nft_type: NftType::Pet,
+        let args = NftArgs {
             name: "Name".to_owned(),
             symbol: "Symbol".to_owned(),
-            url: "Url".to_owned(),
+            uri: "Uri".to_owned(),
             fees: 0,
         };
 

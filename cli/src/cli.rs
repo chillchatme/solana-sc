@@ -1,30 +1,44 @@
 use crate::error::{CliError, Result};
+use anchor_client::solana_sdk::{pubkey::Pubkey, signature::Signer};
 use chill_nft::{
-    instruction::MintNftArgs,
     state::{Config, NftType, Recipient, UiFees},
+    utils::NftArgs,
 };
 use clap::{
     crate_description, crate_name, crate_version, value_t_or_exit, values_t_or_exit, App,
     AppSettings, Arg, ArgMatches, SubCommand,
 };
+use lazy_static::lazy_static;
 use solana_clap_utils::{
     input_parsers::{pubkey_of, pubkeys_of},
-    input_validators::{is_pubkey, is_valid_pubkey, is_valid_signer},
+    input_validators::{is_pubkey, is_pubkey_or_keypair, is_valid_signer},
     keypair::signer_from_path,
 };
-use solana_sdk::{pubkey::Pubkey, signature::Signer};
-use std::{error, fs, path::Path, str::FromStr};
+use std::{error, fs, path::Path, rc::Rc, str::FromStr};
+
+lazy_static! {
+    pub static ref DEFAULT_KEYPAIR: Option<String> = {
+        dirs::home_dir().map(|mut path| {
+            path.extend(&[".config", "solana", "id.json"]);
+            path.to_str().unwrap().to_string()
+        })
+    };
+}
 
 const COMMAND_BALANCE: &str = "balance";
+const COMMAND_CREATE_WALLET: &str = "create-wallet";
 const COMMAND_INFO: &str = "info";
 const COMMAND_INITIALIZE: &str = "initialize";
 const COMMAND_MINT: &str = "mint";
 const COMMAND_MINT_NFT: &str = "mint-nft";
 const COMMAND_TRANSFER: &str = "transfer";
+const COMMAND_WITHDRAW_FT: &str = "withdraw-ft";
+const COMMAND_WITHDRAW_LAMPORTS: &str = "withdraw-lamports";
+const COMMAND_WITHDRAW_NFT: &str = "withdraw-nft";
 
-const AMOUNT: &str = "amount";
-const AUTHORITY: &str = "authority";
 const ACCOUNT: &str = "account";
+const AMOUNT: &str = "amount";
+const CREATOR: &str = "creator";
 const DECIMALS: &str = "decimals";
 const FEES: &str = "fees";
 const FEES_CHARACTER: &str = "character";
@@ -32,25 +46,31 @@ const FEES_EMOTE: &str = "emote";
 const FEES_ITEM: &str = "item";
 const FEES_PET: &str = "pet";
 const FEES_TILESET: &str = "tileset";
+const FEES_WORLD: &str = "world";
 const MAINNET: &str = "mainnet";
 const MINT: &str = "mint-address";
 const MINT_SHARE: &str = "mint-share";
 const NAME: &str = "name";
 const NFT_TYPE: &str = "type";
-const PROGRAM_ID: &str = "program-id";
+const PAYER: &str = "payer";
+const PRIMARY_WALLET: &str = "primary-wallet";
 const RECIPIENT: &str = "recipient";
 const SAVE_PATH: &str = "save-path";
 const SYMBOL: &str = "symbol";
 const TRANSACTION_SHARE: &str = "transaction-share";
-const URL: &str = "url";
+const URI: &str = "uri";
 
 pub enum CliCommand {
     Balance,
+    CreateWallet,
     Info,
     Initialize,
     Mint,
     MintNft,
     Transfer,
+    WithdrawLamports,
+    WithdrawFt,
+    WithdrawNft,
 }
 
 pub struct Cli<'a> {
@@ -102,19 +122,52 @@ impl<'a> Cli<'a> {
             "   * a path to a pubkey file"
         );
 
-        let authority = Arg::with_name(AUTHORITY)
-            .long(AUTHORITY)
+        let mut primary_wallet = Arg::with_name(PRIMARY_WALLET)
+            .long(PRIMARY_WALLET)
             .short("k")
-            .required(false)
             .takes_value(true)
             .value_name(account_address)
-            .validator(is_valid_signer);
+            .validator(is_valid_signer)
+            .help("Primary wallet keypair");
 
-        let account = authority.clone().long(ACCOUNT);
+        let mut payer = Arg::with_name(PAYER)
+            .long(PAYER)
+            .takes_value(true)
+            .value_name(account_address)
+            .validator(is_valid_signer)
+            .help("The account used to pay for the transactions");
+
+        let mut account = Arg::with_name(ACCOUNT)
+            .long(ACCOUNT)
+            .short("a")
+            .takes_value(true)
+            .value_name(account_address)
+            .validator(is_pubkey_or_keypair)
+            .help("Pubkey of keypair of the desired account");
+
+        let mut recipient = Arg::with_name(RECIPIENT)
+            .long(RECIPIENT)
+            .short("r")
+            .takes_value(true)
+            .value_name(account_address)
+            .validator(is_pubkey_or_keypair)
+            .help("An account that will receive tokens");
+
+        if let Some(ref file) = *DEFAULT_KEYPAIR {
+            account = account.required(false).default_value(file);
+            payer = payer.required(false).default_value(file);
+            primary_wallet = primary_wallet.required(false).default_value(file);
+            recipient = recipient.required(false).default_value(file);
+        } else {
+            account = account.required(true);
+            payer = payer.required(true);
+            primary_wallet = primary_wallet.required(true);
+            recipient = recipient.required(true);
+        }
 
         let mint = Arg::with_name(MINT)
             .long(MINT)
-            .short("a")
+            .short("m")
             .required(false)
             .takes_value(true)
             .value_name("MINT_ADDRESS")
@@ -147,25 +200,9 @@ impl<'a> Cli<'a> {
 
         let mainnet = Arg::with_name(MAINNET)
             .long(MAINNET)
-            .short("m")
+            .short("M")
             .takes_value(false)
             .help("Runs the command in the Mainnet");
-
-        let recipient = Arg::with_name(RECIPIENT)
-            .takes_value(true)
-            .value_name("RECIPIENT_ADDRESS")
-            .validator(is_valid_signer)
-            .help("Recipient's account address");
-
-        let required_recipient = recipient.clone().required(true);
-        let optional_recipient = recipient.long(RECIPIENT).short("r");
-
-        let program_id = Arg::with_name(PROGRAM_ID)
-            .long(PROGRAM_ID)
-            .takes_value(true)
-            .value_name("ADDRESS")
-            .validator(is_valid_pubkey)
-            .help("Program id of the Chill smart-contract");
 
         let mint_command = SubCommand::with_name(COMMAND_MINT)
             .args(&[
@@ -173,8 +210,9 @@ impl<'a> Cli<'a> {
                 decimals,
                 mainnet.clone(),
                 mint.clone(),
-                authority.clone(),
-                optional_recipient.clone(),
+                recipient.clone(),
+                primary_wallet.clone(),
+                payer.clone(),
                 save_path,
             ])
             .about(
@@ -188,16 +226,17 @@ impl<'a> Cli<'a> {
             .after_help(account_address_help);
 
         let info_command = SubCommand::with_name(COMMAND_INFO)
-            .args(&[mainnet.clone(), mint.clone(), program_id.clone()])
+            .args(&[mainnet.clone(), mint.clone()])
             .about("Prints the information about smart-contract state");
 
         let transfer_command = SubCommand::with_name(COMMAND_TRANSFER)
             .args(&[
+                recipient.clone(),
+                amount_transfer,
                 mainnet.clone(),
                 mint.clone(),
-                authority.clone(),
-                required_recipient,
-                amount_transfer,
+                primary_wallet.clone(),
+                payer.clone(),
             ])
             .about("Transfers a number of tokens to the destination address")
             .after_help(account_address_help);
@@ -213,7 +252,7 @@ impl<'a> Cli<'a> {
             .multiple(true)
             .max_values(Config::MAX_RECIPIENT_NUMBER as u64)
             .value_name("RECIPIENT_ADDRESS")
-            .validator(is_valid_pubkey);
+            .validator(is_pubkey_or_keypair);
 
         let mint_share = Arg::with_name(MINT_SHARE)
             .long(MINT_SHARE)
@@ -274,12 +313,20 @@ impl<'a> Cli<'a> {
             .value_name(fees_value_name)
             .help("Fees for mint an item NFT");
 
+        let fees_world = Arg::with_name(FEES_WORLD)
+            .long(FEES_WORLD)
+            .short("w")
+            .required(true)
+            .takes_value(true)
+            .value_name(fees_value_name)
+            .help("Fees for mint a world NFT");
+
         let initialize_command = SubCommand::with_name(COMMAND_INITIALIZE)
             .args(&[
                 mainnet.clone(),
                 mint.clone(),
-                authority.clone(),
-                program_id.clone(),
+                primary_wallet.clone(),
+                payer.clone(),
                 multiple_recipients,
                 mint_share,
                 transaction_share,
@@ -288,6 +335,7 @@ impl<'a> Cli<'a> {
                 fees_emote,
                 fees_tileset,
                 fees_item,
+                fees_world,
             ])
             .about("Initializes the Chill smart-contract")
             .after_help(account_address_help);
@@ -299,7 +347,7 @@ impl<'a> Cli<'a> {
         let nft_type = Arg::with_name(NFT_TYPE)
             .takes_value(true)
             .value_name("TYPE")
-            .possible_values(&["character", "pet", "emote", "tileset", "item"])
+            .possible_values(&["character", "pet", "emote", "tileset", "item", "world"])
             .required(true)
             .help("Nft type");
 
@@ -309,11 +357,11 @@ impl<'a> Cli<'a> {
             .required(true)
             .help("Name of the NFT");
 
-        let url = Arg::with_name(URL)
+        let uri = Arg::with_name(URI)
             .takes_value(true)
-            .value_name("URL")
+            .value_name("URI")
             .required(true)
-            .help("URL to the a NFT image");
+            .help("URI to the a NFT image");
 
         let symbol = Arg::with_name(SYMBOL)
             .long(SYMBOL)
@@ -323,33 +371,37 @@ impl<'a> Cli<'a> {
             .default_value("CHILL")
             .help("Symbol of the NFT");
 
+        let creator = Arg::with_name(CREATOR)
+            .long(CREATOR)
+            .short("c")
+            .takes_value(true)
+            .value_name(account_address)
+            .validator(is_pubkey_or_keypair)
+            .help("An account that will appear in the creators list");
+
         let fees = Arg::with_name(FEES)
             .long(FEES)
             .short("f")
             .takes_value(true)
             .value_name("PERCENT")
-            .default_value("2")
-            .help("");
+            .default_value("2");
 
         let mint_nft_command = SubCommand::with_name(COMMAND_MINT_NFT)
             .args(&[
-                nft_type,
-                name,
-                url,
-                symbol,
                 fees,
-                authority,
-                mint,
-                optional_recipient,
-                program_id,
                 mainnet,
+                mint,
+                name,
+                nft_type,
+                creator,
+                payer.clone(),
+                recipient.clone(),
+                primary_wallet,
+                symbol,
+                uri,
             ])
             .about("Creates a new NFT")
             .after_help(account_address_help);
-
-        //
-        // App
-        //
 
         App::new(crate_name!())
             .about(crate_description!())
@@ -368,11 +420,15 @@ impl<'a> Cli<'a> {
     fn get_matches(&self) -> (&'static str, &ArgMatches<'a>) {
         match self.matches.subcommand() {
             (COMMAND_BALANCE, Some(matcher)) => (COMMAND_BALANCE, matcher),
+            (COMMAND_CREATE_WALLET, Some(matcher)) => (COMMAND_CREATE_WALLET, matcher),
             (COMMAND_INFO, Some(matcher)) => (COMMAND_INFO, matcher),
             (COMMAND_INITIALIZE, Some(matcher)) => (COMMAND_INITIALIZE, matcher),
             (COMMAND_MINT, Some(matcher)) => (COMMAND_MINT, matcher),
             (COMMAND_MINT_NFT, Some(matcher)) => (COMMAND_MINT_NFT, matcher),
             (COMMAND_TRANSFER, Some(matcher)) => (COMMAND_TRANSFER, matcher),
+            (COMMAND_WITHDRAW_FT, Some(matcher)) => (COMMAND_WITHDRAW_FT, matcher),
+            (COMMAND_WITHDRAW_LAMPORTS, Some(matcher)) => (COMMAND_WITHDRAW_LAMPORTS, matcher),
+            (COMMAND_WITHDRAW_NFT, Some(matcher)) => (COMMAND_WITHDRAW_NFT, matcher),
             _ => unimplemented!(),
         }
     }
@@ -380,11 +436,15 @@ impl<'a> Cli<'a> {
     pub fn command(&self) -> CliCommand {
         match self.get_matches().0 {
             COMMAND_BALANCE => CliCommand::Balance,
+            COMMAND_CREATE_WALLET => CliCommand::CreateWallet,
             COMMAND_INFO => CliCommand::Info,
             COMMAND_INITIALIZE => CliCommand::Initialize,
             COMMAND_MINT => CliCommand::Mint,
             COMMAND_MINT_NFT => CliCommand::MintNft,
             COMMAND_TRANSFER => CliCommand::Transfer,
+            COMMAND_WITHDRAW_FT => CliCommand::WithdrawFt,
+            COMMAND_WITHDRAW_LAMPORTS => CliCommand::WithdrawLamports,
+            COMMAND_WITHDRAW_NFT => CliCommand::WithdrawNft,
             _ => unimplemented!(),
         }
     }
@@ -406,7 +466,13 @@ impl<'a> Cli<'a> {
             .unwrap_or_else(|| self.default_mint_file())
     }
 
-    pub fn mint_args(&self) -> Result<MintNftArgs> {
+    pub fn nft_type(&self) -> NftType {
+        let matches = self.get_matches().1;
+        let nft_type_str = matches.value_of(NFT_TYPE).unwrap();
+        NftType::try_from(nft_type_str).unwrap()
+    }
+
+    pub fn mint_args(&self) -> Result<NftArgs> {
         let matches = self.get_matches().1;
         let ui_fees = value_t_or_exit!(matches, FEES, f32);
         if !(0.0..=100.0).contains(&ui_fees) {
@@ -416,56 +482,57 @@ impl<'a> Cli<'a> {
         let fees = (ui_fees * 100.0).round() as u16;
         let name = matches.value_of(NAME).unwrap().to_owned();
         let symbol = matches.value_of(SYMBOL).unwrap().to_owned();
-        let url = matches.value_of(URL).unwrap().to_owned();
-        let nft_type_str = matches.value_of(NFT_TYPE).unwrap();
-        let nft_type = NftType::try_from(nft_type_str).unwrap();
+        let uri = matches.value_of(URI).unwrap().to_owned();
 
-        Ok(MintNftArgs {
-            nft_type,
+        Ok(NftArgs {
             name,
             symbol,
-            url,
+            uri,
             fees,
         })
     }
 
-    fn get_signer(
-        &self,
-        key: &str,
-    ) -> core::result::Result<Option<Box<dyn Signer>>, Box<dyn error::Error>> {
+    fn get_signer(&self, key: &str) -> core::result::Result<Rc<dyn Signer>, Box<dyn error::Error>> {
         let matches = self.get_matches().1;
-        if matches.is_present(key) {
-            let signer_path = matches.value_of(key).unwrap();
-            let signer = signer_from_path(matches, signer_path, key, &mut None)?;
-            Ok(Some(signer))
-        } else {
-            Ok(None)
+        let signer_path = matches.value_of(key).unwrap();
+        signer_from_path(matches, signer_path, key, &mut None).map(Rc::from)
+    }
+
+    fn get_pubkey(&self, key: &str) -> Pubkey {
+        let matches = self.get_matches().1;
+        pubkey_of(matches, key).unwrap()
+    }
+
+    pub fn account(&self) -> Pubkey {
+        let matches = self.get_matches().1;
+        pubkey_of(matches, ACCOUNT).unwrap()
+    }
+
+    pub fn recipient(&self) -> Pubkey {
+        let matches = self.get_matches().1;
+        pubkey_of(matches, RECIPIENT).unwrap()
+    }
+
+    pub fn creator(&self) -> Option<Pubkey> {
+        let matches = self.get_matches().1;
+        if !matches.is_present(CREATOR) {
+            return None;
         }
+        Some(pubkey_of(matches, RECIPIENT).unwrap())
     }
 
-    fn get_pubkey(&self, key: &str) -> Option<Pubkey> {
-        let matches = self.get_matches().1;
-        matches
-            .value_of(key)
-            .map(|_| pubkey_of(matches, key).unwrap())
+    pub fn primary_wallet_pubkey(&self) -> Pubkey {
+        self.get_pubkey(PRIMARY_WALLET)
     }
 
-    pub fn recipient_pubkey(&self) -> Option<Pubkey> {
-        self.get_pubkey(RECIPIENT)
+    pub fn primary_wallet(&self) -> Result<Rc<dyn Signer>> {
+        self.get_signer(PRIMARY_WALLET)
+            .map_err(|e| CliError::CannotGetPrimaryWallet(e.to_string()).into())
     }
 
-    pub fn recipient(&self) -> Result<Option<Box<dyn Signer>>> {
-        self.get_signer(RECIPIENT)
-            .map_err(|e| CliError::CannotGetRecipient(e.to_string()).into())
-    }
-
-    pub fn authority_pubkey(&self) -> Option<Pubkey> {
-        self.get_pubkey(AUTHORITY)
-    }
-
-    pub fn authority(&self) -> Result<Option<Box<dyn Signer>>> {
-        self.get_signer(AUTHORITY)
-            .map_err(|e| CliError::CannotGetAuthority(e.to_string()).into())
+    pub fn payer(&self) -> Result<Rc<dyn Signer>> {
+        self.get_signer(PAYER)
+            .map_err(|e| CliError::CannotGetPayer(e.to_string()).into())
     }
 
     fn default_mint_file(&self) -> &str {
@@ -512,6 +579,7 @@ impl<'a> Cli<'a> {
             emote: value_t_or_exit!(matches, FEES_EMOTE, f64),
             tileset: value_t_or_exit!(matches, FEES_TILESET, f64),
             item: value_t_or_exit!(matches, FEES_ITEM, f64),
+            world: value_t_or_exit!(matches, FEES_WORLD, f64),
         }
     }
 
@@ -550,11 +618,6 @@ impl<'a> Cli<'a> {
             .collect())
     }
 
-    pub fn program_id(&self) -> Pubkey {
-        let matches = self.get_matches().1;
-        pubkey_of(matches, PROGRAM_ID).unwrap_or(chill_nft::ID)
-    }
-
     pub fn rpc_url(&self) -> &'static str {
         if self.mainnet() {
             "https://api.mainnet-beta.solana.com"
@@ -567,8 +630,8 @@ impl<'a> Cli<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anchor_client::solana_sdk::signature::{read_keypair_file, Keypair};
     use rand::{prelude::SliceRandom, thread_rng, Rng};
-    use solana_sdk::signature::{read_keypair_file, Keypair};
 
     const MINT_PATH: &str = "../localnet/mint.pubkey.localnet";
     const AUTHORITY_PATH: &str = "../localnet/authority.json";
@@ -586,10 +649,6 @@ mod tests {
     fn mint_pubkey() -> Pubkey {
         let pubkey_str = fs::read_to_string(MINT_PATH).unwrap();
         Pubkey::from_str(pubkey_str.trim()).unwrap()
-    }
-
-    fn authority() -> Keypair {
-        read_keypair_file(AUTHORITY_PATH).unwrap()
     }
 
     fn recipient() -> Keypair {
