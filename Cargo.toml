@@ -1,2 +1,2 @@
 [workspace]
-members = ["cli", "programs/*"]
+members = ["programs/*"]
