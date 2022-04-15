@@ -40,7 +40,7 @@ impl Client {
     }
 
     pub fn airdrop(&self, address: Pubkey, lamports: u64) -> Result<()> {
-        let (blockhash, _) = self.rpc_client.get_recent_blockhash()?;
+        let blockhash = self.rpc_client.get_latest_blockhash()?;
         let _guard;
 
         if RPC_URL.contains("localhost") {
@@ -87,7 +87,7 @@ impl Client {
         payer: Pubkey,
         signers: &impl Signers,
     ) -> Result<Signature> {
-        let (blockhash, _) = self.rpc_client.get_recent_blockhash()?;
+        let blockhash = self.rpc_client.get_latest_blockhash()?;
         let transaction =
             Transaction::new_signed_with_payer(instructions, Some(&payer), signers, blockhash);
 

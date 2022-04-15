@@ -9,10 +9,10 @@ chill-nft = {path = "../programs/nft", features = ["no-entrypoint"]}
 clap = "2.34"
 colored = "2.0.0"
 dirs = "4.0.0"
-mpl-token-metadata = "1.1.*"
-solana-clap-utils = "=1.8.14"
-solana-client = "=1.8.14"
-solana-sdk = "=1.8.14"
+mpl-token-metadata = "1.2.7"
+solana-clap-utils = "~1.9.15"
+solana-client = "~1.9.15"
+solana-sdk = "~1.9.15"
 spl-associated-token-account = {version = "1.0.3", features = ["no-entrypoint"]}
 spl-token = {version = "3.2.0", features = ["no-entrypoint"]}
 thiserror = "1.0.30"

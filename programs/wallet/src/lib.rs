@@ -1,11 +1,11 @@
-use anchor_lang::{prelude::*, solana_program::program::invoke};
+use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token, TokenAccount};
-use spl_token::instruction::sync_native;
 use state::ProxyWallet;
 use utils::{check_authority, transfer_tokens};
 
 declare_id!("9HjUbHc9JmSwEa9vkATjJCoaAhJYbkcqXE64CafXDrPt");
 
+pub mod event;
 pub mod state;
 pub mod utils;
 
@@ -20,6 +20,11 @@ pub mod chill_wallet {
         proxy_wallet.bump = bump;
         proxy_wallet.primary_wallet = ctx.accounts.primary_wallet.key();
         proxy_wallet.user = ctx.accounts.user.key();
+
+        emit!(event::CreateWallet {
+            user: ctx.accounts.user.key()
+        });
+
         Ok(())
     }
 
@@ -29,26 +34,22 @@ pub mod chill_wallet {
         let proxy_wallet_info = ctx.accounts.proxy_wallet.to_account_info();
         let receiver_info = ctx.accounts.receiver.to_account_info();
 
-        require_keys_neq!(
-            proxy_wallet_info.key(),
-            receiver_info.key(),
-            ErrorCode::SendingToYourself
-        );
+        if proxy_wallet_info.key() == receiver_info.key() {
+            return Ok(());
+        }
 
         let rent = Rent::get()?;
         let minimum_balance = rent.minimum_balance(ProxyWallet::LEN);
 
-        let new_receiver_balance = receiver_info.lamports().checked_add(amount).unwrap();
-        let new_wallet_balance = proxy_wallet_info
+        let proxy_wallet_balance = proxy_wallet_info
             .lamports()
-            .checked_sub(amount)
-            .ok_or(ErrorCode::InsufficientFunds)?;
+            .checked_sub(minimum_balance)
+            .unwrap();
 
-        require_gte!(
-            new_wallet_balance,
-            minimum_balance,
-            ErrorCode::InsufficientFunds
-        );
+        require_gte!(proxy_wallet_balance, amount, ErrorCode::InsufficientFunds);
+
+        let new_receiver_balance = receiver_info.lamports().checked_add(amount).unwrap();
+        let new_wallet_balance = proxy_wallet_info.lamports().checked_sub(amount).unwrap();
 
         **receiver_info.lamports.borrow_mut() = new_receiver_balance;
         **proxy_wallet_info.lamports.borrow_mut() = new_wallet_balance;
@@ -66,6 +67,11 @@ pub mod chill_wallet {
                 .unwrap();
         }
 
+        emit!(event::WithdrawLamports {
+            authority: authority_key,
+            amount
+        });
+
         Ok(())
     }
 
@@ -74,24 +80,9 @@ pub mod chill_wallet {
         let proxy_wallet = &mut ctx.accounts.proxy_wallet;
         let proxy_wallet_token_account = &ctx.accounts.proxy_wallet_token_account;
         let receiver_token_account = &ctx.accounts.receiver_token_account;
-        let authority_key = ctx.accounts.authority.key();
-        let is_native = proxy_wallet_token_account.is_native();
 
-        require_keys_neq!(
-            proxy_wallet_token_account.key(),
-            receiver_token_account.key(),
-            ErrorCode::SendingToYourself
-        );
-
-        if is_native {
-            let token_program = &ctx.accounts.token_program;
-            invoke(
-                &sync_native(&token_program.key(), &proxy_wallet_token_account.key())?,
-                &[
-                    proxy_wallet_token_account.to_account_info(),
-                    token_program.to_account_info(),
-                ],
-            )?;
+        if proxy_wallet_token_account.key() == receiver_token_account.key() {
+            return Ok(());
         }
 
         transfer_tokens(
@@ -102,31 +93,23 @@ pub mod chill_wallet {
             amount,
         )?;
 
-        if is_native {
-            if authority_key == proxy_wallet.primary_wallet {
-                proxy_wallet.total_money_withdrawn_primary_wallet = proxy_wallet
-                    .total_money_withdrawn_primary_wallet
-                    .checked_add(amount)
-                    .unwrap();
-            } else {
-                proxy_wallet.total_money_withdrawn_user = proxy_wallet
-                    .total_money_withdrawn_user
-                    .checked_add(amount)
-                    .unwrap();
-            }
+        let authority_key = ctx.accounts.authority.key();
+        if authority_key == proxy_wallet.primary_wallet {
+            proxy_wallet.total_ft_withdrawn_primary_wallet = proxy_wallet
+                .total_ft_withdrawn_primary_wallet
+                .checked_add(amount)
+                .unwrap();
         } else {
-            if authority_key == proxy_wallet.primary_wallet {
-                proxy_wallet.total_ft_withdrawn_primary_wallet = proxy_wallet
-                    .total_ft_withdrawn_primary_wallet
-                    .checked_add(amount)
-                    .unwrap();
-            } else {
-                proxy_wallet.total_ft_withdrawn_user = proxy_wallet
-                    .total_ft_withdrawn_user
-                    .checked_add(amount)
-                    .unwrap();
-            }
+            proxy_wallet.total_ft_withdrawn_user = proxy_wallet
+                .total_ft_withdrawn_user
+                .checked_add(amount)
+                .unwrap();
         }
+
+        emit!(event::WithdrawFt {
+            authority: authority_key,
+            amount
+        });
 
         Ok(())
     }
@@ -137,11 +120,9 @@ pub mod chill_wallet {
         let proxy_wallet_token_account = &ctx.accounts.proxy_wallet_token_account;
         let receiver_token_account = &ctx.accounts.receiver_token_account;
 
-        require_keys_neq!(
-            proxy_wallet_token_account.key(),
-            receiver_token_account.key(),
-            ErrorCode::SendingToYourself
-        );
+        if proxy_wallet_token_account.key() == receiver_token_account.key() {
+            return Ok(());
+        }
 
         transfer_tokens(
             proxy_wallet,
@@ -163,6 +144,10 @@ pub mod chill_wallet {
                 .checked_add(1)
                 .unwrap();
         }
+
+        emit!(event::WithdrawNft {
+            authority: authority_key,
+        });
 
         Ok(())
     }
@@ -206,11 +191,10 @@ pub struct WithdrawFt<'info> {
     #[account(constraint = mint.decimals != 0 || mint.supply != 1 @ ErrorCode::TokenIsNft)]
     pub mint: Account<'info, Mint>,
 
-    #[account(mut, constraint = proxy_wallet_token_account.owner == proxy_wallet.key(),
-              constraint = proxy_wallet_token_account.mint == mint.key())]
+    #[account(mut, token::authority = proxy_wallet, token::mint = mint)]
     pub proxy_wallet_token_account: Account<'info, TokenAccount>,
 
-    #[account(mut, constraint = receiver_token_account.mint == mint.key())]
+    #[account(mut, token::mint = mint)]
     pub receiver_token_account: Account<'info, TokenAccount>,
 
     pub token_program: Program<'info, Token>,
@@ -226,11 +210,10 @@ pub struct WithdrawNft<'info> {
     #[account(constraint = nft_mint.decimals == 0 && nft_mint.supply == 1 @ ErrorCode::TokenIsNotNft)]
     pub nft_mint: Account<'info, Mint>,
 
-    #[account(mut, constraint = proxy_wallet_token_account.owner == proxy_wallet.key(),
-              constraint = proxy_wallet_token_account.mint == nft_mint.key())]
+    #[account(mut, token::authority = proxy_wallet, token::mint = nft_mint)]
     pub proxy_wallet_token_account: Account<'info, TokenAccount>,
 
-    #[account(mut, constraint = receiver_token_account.mint == nft_mint.key())]
+    #[account(mut, token::mint = nft_mint)]
     pub receiver_token_account: Account<'info, TokenAccount>,
 
     pub token_program: Program<'info, Token>,
@@ -238,9 +221,6 @@ pub struct WithdrawNft<'info> {
 
 #[error_code]
 pub enum ErrorCode {
-    #[msg("You try to send tokens to the proxy wallet")]
-    SendingToYourself,
-
     #[msg("Insufficient funds")]
     InsufficientFunds,
 
