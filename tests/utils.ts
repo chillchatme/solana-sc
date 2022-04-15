@@ -1,13 +1,41 @@
-import { transactions } from "@metaplex/js";
 import * as anchor from "@project-serum/anchor";
 import { BN } from "@project-serum/anchor";
+import * as BufferLayout from "@solana/buffer-layout";
 import {
   Keypair,
   PublicKey,
   SYSVAR_RENT_PUBKEY,
   Transaction,
+  TransactionInstruction,
   TransactionSignature,
 } from "@solana/web3.js";
+
+export const requestComputeUnitsInstruction = (
+  units: number,
+  additionalFee: number,
+): TransactionInstruction => {
+  const programId = new PublicKey(
+    "ComputeBudget111111111111111111111111111111",
+  );
+
+  const layout = BufferLayout.struct<{
+    instruction: number;
+    units: number;
+    additionalFee: number;
+  }>([
+    BufferLayout.u8("instruction"),
+    BufferLayout.u32("units"),
+    BufferLayout.u32("additionalFee"),
+  ]);
+
+  const data = Buffer.alloc(layout.span);
+  layout.encode({ instruction: 0, units, additionalFee }, data);
+  return new TransactionInstruction({
+    data,
+    keys: [],
+    programId,
+  });
+};
 
 export async function getWalletPubkey(
   user: PublicKey,
@@ -22,12 +50,12 @@ export async function getWalletPubkey(
 }
 
 export async function getNftConfigPubkey(
-  primaryWallet: PublicKey,
+  chillMint: PublicKey,
   programId: PublicKey,
 ): Promise<PublicKey> {
   return (await PublicKey.findProgramAddress([
     anchor.utils.bytes.utf8.encode("config"),
-    primaryWallet.toBytes(),
+    chillMint.toBytes(),
   ], programId))[0];
 }
 
@@ -161,4 +189,98 @@ export async function mintTokens(
   })
     .signers([authoirity])
     .rpc();
+}
+
+const nftTypes = [
+  "character",
+  "pet",
+  "emote",
+  "tileset",
+  "item",
+  "world",
+] as const;
+
+export const MAX_RECIPIENTS = 3;
+
+export type Fees = { [K in typeof nftTypes[number]]: BN };
+export type NftType = Pick<keyof Fees, never>;
+
+export type Recipient = {
+  address: PublicKey;
+  mintShare: number;
+  transactionShare: number;
+};
+
+export type NftArgs = {
+  name: string;
+  symbol: string;
+  uri: string;
+  fees: number;
+};
+
+export function randomNumber(max?: number): number {
+  if (max == null) {
+    max = 1_000_000;
+  }
+  return Math.floor(Math.random() * (max + 1));
+}
+
+export function randomFees(): Fees {
+  const fees = {};
+  for (const index in nftTypes) {
+    fees[nftTypes[index]] = new BN(randomNumber());
+  }
+  return fees as Fees;
+}
+
+export function feesOf(fees: Fees, nftType: NftType): BN {
+  const nftTypeKey = Object.keys(nftType)[0];
+  return fees[nftTypeKey];
+}
+
+export function randomNftType(): NftType {
+  const index = randomNumber(nftTypes.length - 1);
+  const nftType = {};
+  nftType[nftTypes[index]] = {};
+  return nftType;
+}
+
+export function randomRecipients(amount?: number): Recipient[] {
+  if (amount == null) {
+    amount = MAX_RECIPIENTS;
+  }
+
+  const recipients: Recipient[] = [];
+  let mintShare = 100;
+  let transactionShare = 100;
+
+  for (let i = 1; i < amount; i++) {
+    const recipient = {
+      address: Keypair.generate().publicKey,
+      mintShare: randomNumber(mintShare),
+      transactionShare: randomNumber(transactionShare),
+    };
+
+    mintShare -= recipient.mintShare;
+    transactionShare -= recipient.transactionShare;
+    recipients.push(recipient);
+  }
+
+  const lastRecipient = {
+    address: Keypair.generate().publicKey,
+    mintShare,
+    transactionShare,
+  };
+  recipients.push(lastRecipient);
+
+  return recipients;
+}
+
+export function randomNftArgs(): NftArgs {
+  return {
+    name: "NAME_" + randomNumber(1000),
+    symbol: "SYM_" + randomNumber(1000),
+    uri: "https://arweave.org/" + Keypair.generate().publicKey.toString(),
+    fees: randomNumber(10000),
+  };
 }
