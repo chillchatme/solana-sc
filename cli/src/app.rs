@@ -2,6 +2,7 @@ use crate::{
     cli::{Cli, CliCommand},
     client::Client,
     error::{AppError, CliError, Result},
+    pda,
 };
 use anchor_client::solana_sdk::{
     native_token::sol_to_lamports, program_option::COption, pubkey::Pubkey, signature::Signature,
@@ -9,6 +10,7 @@ use anchor_client::solana_sdk::{
 };
 use chill_nft::state::Fees;
 use colored::Colorize;
+use spl_token::native_mint;
 use std::{fs, path::Path, process::exit, rc::Rc};
 
 pub struct App<'cli> {
@@ -209,6 +211,21 @@ impl App<'_> {
         Ok(())
     }
 
+    fn process_update_nft(&self) -> Result<()> {
+        let payer = self.cli.payer()?;
+        let primary_wallet = self.cli.primary_wallet()?;
+        let nft_mint = self.get_mint()?;
+        let args = self.cli.mint_args()?;
+
+        let signature = self
+            .client
+            .update_nft(payer, primary_wallet, nft_mint, args)?;
+
+        self.print_signature(&signature);
+
+        Ok(())
+    }
+
     fn process_print_info(&self) -> Result<()> {
         let mint = self.get_mint()?;
         self.print_info(mint)
@@ -272,6 +289,85 @@ impl App<'_> {
         self.print_info(mint)
     }
 
+    pub fn process_create_wallet(&self) -> Result<()> {
+        let payer = self.cli.payer()?;
+        let primary_wallet = self.cli.primary_wallet_pubkey();
+        let account = self.cli.account();
+        let proxy_wallet = pda::proxy_wallet(account, primary_wallet);
+
+        println!("{} {}", "Wallet:".green(), proxy_wallet);
+
+        let signature = self
+            .client
+            .create_wallet(payer, account, proxy_wallet, primary_wallet)?;
+
+        self.print_signature(&signature);
+
+        Ok(())
+    }
+
+    pub fn process_withdraw_lamports(&self) -> Result<()> {
+        let account = self.cli.account();
+        let authority = self.cli.authority()?;
+        let payer = self.cli.payer()?;
+        let primary_wallet = self.cli.primary_wallet_pubkey();
+        let recipient = self.cli.recipient();
+
+        let ui_amount = self.cli.ui_amount();
+        let amount = spl_token::ui_amount_to_amount(ui_amount, native_mint::DECIMALS);
+
+        let proxy_wallet = pda::proxy_wallet(account, primary_wallet);
+
+        let signature =
+            self.client
+                .withdraw_lamports(payer, authority, proxy_wallet, recipient, amount)?;
+
+        self.print_signature(&signature);
+
+        Ok(())
+    }
+
+    pub fn process_withdraw_ft(&self) -> Result<()> {
+        let account = self.cli.account();
+        let authority = self.cli.authority()?;
+        let payer = self.cli.payer()?;
+        let primary_wallet = self.cli.primary_wallet_pubkey();
+        let recipient = self.cli.recipient();
+        let mint = self.get_mint()?;
+
+        let ui_amount = self.cli.ui_amount();
+        let amount = spl_token::ui_amount_to_amount(ui_amount, native_mint::DECIMALS);
+
+        let proxy_wallet = pda::proxy_wallet(account, primary_wallet);
+
+        let signature =
+            self.client
+                .withdraw_ft(payer, authority, proxy_wallet, recipient, mint, amount)?;
+
+        self.print_signature(&signature);
+
+        Ok(())
+    }
+
+    pub fn process_withdraw_nft(&self) -> Result<()> {
+        let account = self.cli.account();
+        let authority = self.cli.authority()?;
+        let payer = self.cli.payer()?;
+        let primary_wallet = self.cli.primary_wallet_pubkey();
+        let recipient = self.cli.recipient();
+        let mint = self.get_mint()?;
+
+        let proxy_wallet = pda::proxy_wallet(account, primary_wallet);
+
+        let signature =
+            self.client
+                .withdraw_nft(payer, authority, proxy_wallet, recipient, mint)?;
+
+        self.print_signature(&signature);
+
+        Ok(())
+    }
+
     pub fn run(&self) {
         let result = match self.cli.command() {
             CliCommand::Balance => self.process_print_balance(),
@@ -279,8 +375,12 @@ impl App<'_> {
             CliCommand::Initialize => self.initialize(),
             CliCommand::Mint => self.process_mint(),
             CliCommand::MintNft => self.process_mint_nft(),
+            CliCommand::UpdateNft => self.process_update_nft(),
             CliCommand::Transfer => self.process_transfer(),
-            _ => Ok(()),
+            CliCommand::CreateWallet => self.process_create_wallet(),
+            CliCommand::WithdrawLamports => self.process_withdraw_lamports(),
+            CliCommand::WithdrawFt => self.process_withdraw_ft(),
+            CliCommand::WithdrawNft => self.process_withdraw_nft(),
         };
 
         if let Err(error) = result {

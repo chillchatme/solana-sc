@@ -502,7 +502,7 @@ impl Client {
 
         let primary_wallet_token = self
             .find_token_address(primary_wallet.pubkey(), chill_mint)?
-            .unwrap();
+            .ok_or(CliError::TokenAccountNotFound(primary_wallet.pubkey()))?;
 
         program
             .request()
@@ -532,104 +532,139 @@ impl Client {
             .send()
             .map_err(Into::into)
     }
-}
 
-#[cfg(test)]
-mod tests {
+    pub fn update_nft(
+        &self,
+        payer: Rc<dyn Signer>,
+        primary_wallet: Rc<dyn Signer>,
+        nft_mint: Pubkey,
+        args: NftArgs,
+    ) -> Result<Signature> {
+        let program = self.program(payer.clone(), chill_nft::ID)?;
+        let nft_metadata = pda::metadata(nft_mint);
 
-    use super::*;
+        program
+            .request()
+            .args(chill_nft::instruction::UpdateNft { args })
+            .accounts(chill_nft::accounts::UpdateNft {
+                primary_wallet: primary_wallet.pubkey(),
+                nft_metadata,
+                token_metadata_program: mpl_token_metadata::ID,
+            })
+            .signer(primary_wallet.as_ref())
+            .send()
+            .map_err(Into::into)
+    }
 
-    #[test]
-    fn transfer_updates_nft() {
-        let client = Client::init("https://api.devnet.solana.com");
-        let authority = Keypair::new();
-        client.airdrop(authority.pubkey(), 1_000_000_000).unwrap();
+    pub fn create_wallet(
+        &self,
+        payer: Rc<dyn Signer>,
+        account: Pubkey,
+        proxy_wallet: Pubkey,
+        primary_wallet: Pubkey,
+    ) -> Result<Signature> {
+        let program = self.program(payer.clone(), chill_wallet::ID)?;
 
-        let program_id = chill_nft::ID;
-        let mint_chill = client.create_mint(&authority, 9).unwrap();
-        let (nft_mint, nft_token) = client
-            .create_mint_and_token_nft(&authority, &authority)
-            .unwrap();
-        let authority_chill_account = client
-            .get_or_create_token_account(&authority, authority.pubkey(), mint_chill)
-            .unwrap();
+        program
+            .request()
+            .args(chill_wallet::instruction::CreateWallet)
+            .accounts(chill_wallet::accounts::CreateWallet {
+                primary_wallet,
+                user: account,
+                payer: payer.pubkey(),
+                proxy_wallet,
+                system_program: system_program::ID,
+            })
+            .send()
+            .map_err(Into::into)
+    }
 
-        let recipients = Vec::new();
-        let fees = Fees::default();
-        client
-            .initialize(program_id, authority.pubkey(), mint_chill, fees, recipients)
-            .unwrap();
+    pub fn withdraw_lamports(
+        &self,
+        payer: Rc<dyn Signer>,
+        authority: Rc<dyn Signer>,
+        proxy_wallet: Pubkey,
+        recipient: Pubkey,
+        amount: u64,
+    ) -> Result<Signature> {
+        let program = self.program(payer.clone(), chill_wallet::ID)?;
 
-        let args = NftArgs {
-            name: "Name".to_owned(),
-            symbol: "Symbol".to_owned(),
-            uri: "Uri".to_owned(),
-            fees: 0,
-        };
+        program
+            .request()
+            .args(chill_wallet::instruction::WithdrawLamports { amount })
+            .accounts(chill_wallet::accounts::WithdrawLamports {
+                authority: authority.pubkey(),
+                proxy_wallet,
+                receiver: recipient,
+            })
+            .signer(authority.as_ref())
+            .send()
+            .map_err(Into::into)
+    }
 
-        client
-            .mint_nft(
-                program_id,
-                &authority,
-                &authority,
-                mint_chill,
-                authority_chill_account,
+    pub fn withdraw_ft(
+        &self,
+        payer: Rc<dyn Signer>,
+        authority: Rc<dyn Signer>,
+        proxy_wallet: Pubkey,
+        recipient: Pubkey,
+        mint: Pubkey,
+        amount: u64,
+    ) -> Result<Signature> {
+        let program = self.program(payer.clone(), chill_wallet::ID)?;
+
+        let proxy_wallet_token_account = self
+            .find_token_address(proxy_wallet, mint)?
+            .ok_or(CliError::TokenAccountNotFound(proxy_wallet))?;
+
+        let receiver_token_account = self.get_or_create_token_account(recipient, mint, payer)?;
+
+        program
+            .request()
+            .args(chill_wallet::instruction::WithdrawFt { amount })
+            .accounts(chill_wallet::accounts::WithdrawFt {
+                authority: authority.pubkey(),
+                proxy_wallet,
+                mint,
+                proxy_wallet_token_account,
+                receiver_token_account,
+                token_program: spl_token::ID,
+            })
+            .signer(authority.as_ref())
+            .send()
+            .map_err(Into::into)
+    }
+
+    pub fn withdraw_nft(
+        &self,
+        payer: Rc<dyn Signer>,
+        authority: Rc<dyn Signer>,
+        proxy_wallet: Pubkey,
+        recipient: Pubkey,
+        nft_mint: Pubkey,
+    ) -> Result<Signature> {
+        let program = self.program(payer.clone(), chill_wallet::ID)?;
+
+        let proxy_wallet_token_account = self
+            .find_token_address(proxy_wallet, nft_mint)?
+            .ok_or(CliError::TokenAccountNotFound(proxy_wallet))?;
+
+        let receiver_token_account =
+            self.get_or_create_token_account(recipient, nft_mint, payer)?;
+
+        program
+            .request()
+            .args(chill_wallet::instruction::WithdrawNft)
+            .accounts(chill_wallet::accounts::WithdrawNft {
+                authority: authority.pubkey(),
+                proxy_wallet,
                 nft_mint,
-                nft_token,
-                args,
-            )
-            .unwrap();
-
-        let authority_token_pubkey = get_associated_token_address(&authority.pubkey(), &nft_mint);
-        let authority_token_account = client.token_account(authority_token_pubkey).unwrap();
-        assert_eq!(authority_token_account.amount, 1);
-
-        let metadata = client.metadata_account(nft_mint).unwrap();
-        let creators = metadata.data.creators.unwrap();
-        assert!(!metadata.primary_sale_happened);
-        assert_eq!(creators.len(), 1);
-        assert_eq!(creators[0].address, authority.pubkey());
-
-        let recipient = Keypair::new();
-        client.airdrop(recipient.pubkey(), 1_000_000_000).unwrap();
-
-        client
-            .transfer_tokens(&authority, nft_mint, recipient.pubkey(), 1)
-            .unwrap();
-
-        let authority_token_account = client.token_account(authority_token_pubkey).unwrap();
-        assert_eq!(authority_token_account.amount, 0);
-
-        let recipient_token_pubkey = get_associated_token_address(&recipient.pubkey(), &nft_mint);
-
-        let recipient_token_account = client.token_account(recipient_token_pubkey).unwrap();
-        assert_eq!(recipient_token_account.amount, 1);
-
-        let metadata = client.metadata_account(nft_mint).unwrap();
-        let creators = metadata.data.creators.unwrap();
-        assert!(metadata.primary_sale_happened);
-        assert_eq!(creators.len(), 2);
-        assert_eq!(creators[0].address, authority.pubkey());
-        assert_eq!(creators[0].share, AUTHORITY_SHARE);
-        assert_eq!(creators[1].address, recipient.pubkey());
-        assert_eq!(creators[1].share, 100 - AUTHORITY_SHARE);
-
-        let new_recipient = Keypair::new();
-        client
-            .transfer_tokens(&recipient, nft_mint, new_recipient.pubkey(), 1)
-            .unwrap();
-
-        let recipient_token_account = client.token_account(recipient_token_pubkey).unwrap();
-        assert_eq!(recipient_token_account.amount, 0);
-
-        let new_recipient_token_pubkey =
-            get_associated_token_address(&new_recipient.pubkey(), &nft_mint);
-
-        let new_recipient_token_account = client.token_account(new_recipient_token_pubkey).unwrap();
-        assert_eq!(new_recipient_token_account.amount, 1);
-
-        let metadata = client.metadata_account(nft_mint).unwrap();
-        assert!(metadata.primary_sale_happened);
-        assert_eq!(metadata.data.creators.unwrap(), creators);
+                proxy_wallet_token_account,
+                receiver_token_account,
+                token_program: spl_token::ID,
+            })
+            .signer(authority.as_ref())
+            .send()
+            .map_err(Into::into)
     }
 }

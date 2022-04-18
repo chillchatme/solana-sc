@@ -89,6 +89,9 @@ pub enum CliError {
     #[error("Authority account not found. Please specify the path to existing keypair with '--authority' argument")]
     AuthorityNotFound,
 
+    #[error("Token account not found for {0}")]
+    TokenAccountNotFound(Pubkey),
+
     #[error("Mint '{0}' has another authority")]
     AuthorityNotMatch(Pubkey),
 
