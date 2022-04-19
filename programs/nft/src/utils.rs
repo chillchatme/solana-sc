@@ -95,7 +95,7 @@ pub fn create_master_edition<'info>(
             primary_wallet.key(),
             metadata.key(),
             payer.key(),
-            Some(1),
+            Some(0),
         ),
         &[
             master_edition.to_account_info(),
