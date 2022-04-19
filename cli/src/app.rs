@@ -4,9 +4,12 @@ use crate::{
     error::{AppError, CliError, Result},
     pda,
 };
-use anchor_client::solana_sdk::{
-    native_token::sol_to_lamports, program_option::COption, pubkey::Pubkey, signature::Signature,
-    signer::Signer,
+use anchor_client::{
+    solana_sdk::{
+        native_token::sol_to_lamports, program_option::COption, pubkey::Pubkey,
+        signature::Signature, signer::Signer,
+    },
+    Cluster,
 };
 use chill_nft::state::Fees;
 use colored::Colorize;
@@ -21,7 +24,7 @@ pub struct App<'cli> {
 impl App<'_> {
     pub fn init() -> Self {
         let cli = Cli::init();
-        let client = Client::init(cli.rpc_url());
+        let client = Client::init(&cli.rpc_url());
 
         App { cli, client }
     }
@@ -33,7 +36,7 @@ impl App<'_> {
 
     fn try_to_airdrop(&self, address: Pubkey) -> Result<()> {
         if self.client.balance(address)? == 0 {
-            if self.cli.mainnet() {
+            if self.cli.cluster() == Cluster::Mainnet {
                 println!("{}", "You have to top up your balance".red());
                 exit(0);
             } else {

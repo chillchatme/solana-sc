@@ -1,5 +1,8 @@
 use crate::error::{CliError, Result};
-use anchor_client::solana_sdk::{pubkey::Pubkey, signature::Signer};
+use anchor_client::{
+    solana_sdk::{pubkey::Pubkey, signature::Signer},
+    Cluster,
+};
 use chill_nft::{
     state::{Config, NftType, Recipient, UiFees},
     utils::NftArgs,
@@ -11,7 +14,10 @@ use clap::{
 use lazy_static::lazy_static;
 use solana_clap_utils::{
     input_parsers::{pubkey_of, pubkeys_of},
-    input_validators::{is_pubkey, is_pubkey_or_keypair, is_valid_signer},
+    input_validators::{
+        is_pubkey, is_pubkey_or_keypair, is_url_or_moniker, is_valid_signer,
+        normalize_to_url_if_moniker,
+    },
     keypair::signer_from_path,
 };
 use std::{error, fs, path::Path, rc::Rc, str::FromStr};
@@ -49,7 +55,6 @@ const FEES_ITEM: &str = "item";
 const FEES_PET: &str = "pet";
 const FEES_TILESET: &str = "tileset";
 const FEES_WORLD: &str = "world";
-const MAINNET: &str = "mainnet";
 const MINT: &str = "mint-address";
 const MINT_SHARE: &str = "mint-share";
 const NAME: &str = "name";
@@ -57,6 +62,7 @@ const NFT_TYPE: &str = "type";
 const PAYER: &str = "payer";
 const PRIMARY_WALLET: &str = "primary-wallet";
 const RECIPIENT: &str = "recipient";
+const RPC_URL: &str = "url";
 const SAVE_PATH: &str = "save-path";
 const SYMBOL: &str = "symbol";
 const TRANSACTION_SHARE: &str = "transaction-share";
@@ -212,17 +218,19 @@ impl<'a> Cli<'a> {
             .default_value("9")
             .help("Number of base 10 digits to the right of the decimal place");
 
-        let mainnet = Arg::with_name(MAINNET)
-            .long(MAINNET)
-            .short("M")
-            .takes_value(false)
-            .help("Runs the command in the Mainnet");
+        let rpc = Arg::with_name(RPC_URL)
+            .long(RPC_URL)
+            .short("u")
+            .global(true)
+            .takes_value(true)
+            .validator(is_url_or_moniker)
+            .default_value("devnet")
+            .help("URL for Solana's JSON RPC or moniker (or their first letter)");
 
         let mint_command = SubCommand::with_name(COMMAND_MINT)
             .args(&[
                 amount_mint,
                 decimals,
-                mainnet.clone(),
                 mint.clone(),
                 recipient.clone(),
                 primary_wallet.clone(),
@@ -235,19 +243,18 @@ impl<'a> Cli<'a> {
             .after_help(account_address_help);
 
         let balance_command = SubCommand::with_name(COMMAND_BALANCE)
-            .args(&[mainnet.clone(), mint.clone(), account.clone()])
+            .args(&[mint.clone(), account.clone()])
             .about("Prints the balance of the token account")
             .after_help(account_address_help);
 
         let info_command = SubCommand::with_name(COMMAND_INFO)
-            .args(&[mainnet.clone(), mint.clone()])
+            .args(&[mint.clone()])
             .about("Prints the information about smart-contract state");
 
         let transfer_command = SubCommand::with_name(COMMAND_TRANSFER)
             .args(&[
                 recipient.clone(),
                 amount_transfer.clone(),
-                mainnet.clone(),
                 mint.clone(),
                 primary_wallet.clone(),
                 payer.clone(),
@@ -337,7 +344,6 @@ impl<'a> Cli<'a> {
 
         let initialize_command = SubCommand::with_name(COMMAND_INITIALIZE)
             .args(&[
-                mainnet.clone(),
                 mint.clone(),
                 primary_wallet.clone(),
                 payer.clone(),
@@ -403,7 +409,6 @@ impl<'a> Cli<'a> {
         let mint_nft_command = SubCommand::with_name(COMMAND_MINT_NFT)
             .args(&[
                 fees.clone(),
-                mainnet.clone(),
                 mint.clone(),
                 nft_type,
                 name.clone(),
@@ -423,7 +428,6 @@ impl<'a> Cli<'a> {
 
         let update_nft_command = SubCommand::with_name(COMMAND_UPDATE_NFT)
             .args(&[
-                mainnet.clone(),
                 fees.clone(),
                 required_mint.clone(),
                 name,
@@ -440,12 +444,7 @@ impl<'a> Cli<'a> {
         //
 
         let create_wallet_command = SubCommand::with_name(COMMAND_CREATE_WALLET)
-            .args(&[
-                primary_wallet.clone(),
-                account.clone(),
-                mainnet.clone(),
-                payer.clone(),
-            ])
+            .args(&[primary_wallet.clone(), account.clone(), payer.clone()])
             .about("Creates a proxy wallet")
             .after_help(account_address_help);
 
@@ -454,7 +453,6 @@ impl<'a> Cli<'a> {
                 account.clone(),
                 amount_transfer.clone(),
                 authority.clone(),
-                mainnet.clone(),
                 payer.clone(),
                 primary_wallet.clone(),
                 recipient.clone(),
@@ -467,11 +465,10 @@ impl<'a> Cli<'a> {
                 account.clone(),
                 amount_transfer.clone(),
                 authority.clone(),
-                mainnet.clone(),
                 payer.clone(),
                 primary_wallet.clone(),
                 recipient.clone(),
-                required_mint.clone(),
+                mint.clone(),
             ])
             .about("Withdraws FT from proxy wallet")
             .after_help(account_address_help);
@@ -480,7 +477,6 @@ impl<'a> Cli<'a> {
             .args(&[
                 account.clone(),
                 authority.clone(),
-                mainnet.clone(),
                 payer.clone(),
                 primary_wallet.clone(),
                 recipient.clone(),
@@ -492,6 +488,7 @@ impl<'a> Cli<'a> {
         App::new(crate_name!())
             .about(crate_description!())
             .version(crate_version!())
+            .arg(rpc)
             .subcommands(vec![
                 balance_command,
                 info_command,
@@ -632,10 +629,13 @@ impl<'a> Cli<'a> {
     }
 
     fn default_mint_file(&self) -> &str {
-        if self.mainnet() {
-            "mint.mainnet.pubkey"
-        } else {
-            "mint.devnet.pubkey"
+        match self.cluster() {
+            Cluster::Testnet => "mint.testnet.pubkey",
+            Cluster::Mainnet => "mint.mainnet.pubkey",
+            Cluster::Devnet => "mint.devnet.pubkey",
+            Cluster::Localnet => "mint.localnet.pubkey",
+            Cluster::Debug => "mint.debug.pubkey",
+            Cluster::Custom(_, _) => "mint.url.pubkey",
         }
     }
 
@@ -660,11 +660,6 @@ impl<'a> Cli<'a> {
         let default_mint_path = self.default_mint_file();
         let mint = matches.value_of(MINT).unwrap_or(default_mint_path);
         self.parse_mint(mint)
-    }
-
-    pub fn mainnet(&self) -> bool {
-        let matches = self.get_matches().1;
-        matches.is_present(MAINNET)
     }
 
     pub fn fees(&self) -> UiFees {
@@ -714,11 +709,15 @@ impl<'a> Cli<'a> {
             .collect())
     }
 
-    pub fn rpc_url(&self) -> &'static str {
-        if self.mainnet() {
-            "https://api.mainnet-beta.solana.com"
-        } else {
-            "https://api.devnet.solana.com"
-        }
+    pub fn cluster(&self) -> Cluster {
+        let matches = self.get_matches().1;
+        let cluster = matches.value_of(RPC_URL).unwrap();
+        Cluster::from_str(cluster).unwrap()
+    }
+
+    pub fn rpc_url(&self) -> String {
+        let matches = self.get_matches().1;
+        let url_or_moniker = matches.value_of(RPC_URL).unwrap();
+        normalize_to_url_if_moniker(url_or_moniker)
     }
 }

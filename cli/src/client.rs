@@ -502,7 +502,7 @@ impl Client {
 
         let primary_wallet_token = self
             .find_token_address(primary_wallet.pubkey(), chill_mint)?
-            .ok_or(CliError::TokenAccountNotFound(primary_wallet.pubkey()))?;
+            .ok_or_else(|| CliError::TokenAccountNotFound(primary_wallet.pubkey()))?;
 
         program
             .request()
