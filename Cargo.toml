@@ -1,2 +1,11 @@
 [workspace]
-members = ["programs/*"]
+members = ["cli", "programs/*"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "z"
+
+[profile.release.package.chill-cli]
+codegen-units = 16
+opt-level = 3
