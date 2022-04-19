@@ -1,20 +1,26 @@
-.PHONY: test build deploy install
+.PHONY: test build deploy deploy-mainnet install
 
 test:
-	cargo build
-	cargo test -- --nocapture
-	python3 ./cli/test/main.py
+	yarn
+	yarn run anchor test
+	# cargo build --release --manifest-path ./cli/Cargo.toml
+	# python3 -m pip install -r ./requirements.txt
+	# python3 ./cli/test/main.py
 
 build:
+	yarn
+	yarn run anchor build
 	cargo build --release --manifest-path ./cli/Cargo.toml
 
 deploy:
-	cargo build-bpf --manifest-path ./programs/nft/Cargo.toml
-	solana program deploy ./target/deploy/chill_nft.so --url devnet
+	yarn
+	yarn run anchor build
+	yarn run anchor deploy --provider.cluster testnet
 
 deploy-mainnet:
-	cargo build-bpf --manifest-path ./programs/nft/Cargo.toml
-	solana program deploy ./target/deploy/chill_nft.so --url mainnet
+	yarn
+	yarn run anchor build
+	yarn run anchor deploy --provider.cluster mainnet
 
 install:
 	cargo install --path ./cli
