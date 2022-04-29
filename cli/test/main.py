@@ -47,6 +47,8 @@ class CliTest(unittest.TestCase):
 
             shutil.move(DEFAULT_KEY_PATH, self.keyfile)
 
+        create_temporary_keypair()
+
     def tearDown(self):
         if DEFAULT_MINT_PATH.is_file():
             os.remove(DEFAULT_MINT_PATH)
@@ -54,6 +56,7 @@ class CliTest(unittest.TestCase):
         if self.save_path.is_file():
             os.remove(self.save_path)
 
+        os.remove(DEFAULT_KEY_PATH)
         if self.keyfile is not None:
             shutil.move(self.keyfile, DEFAULT_KEY_PATH)
 
@@ -73,7 +76,7 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 0)
 
         authority = default_authority()
-        mint = default_mintfile()
+        mint = default_mint_pubkey()
         amount = self.client.token_amount(authority, mint)
         self.assertEqual(amount, balance)
 
@@ -94,7 +97,7 @@ class CliTest(unittest.TestCase):
 
         authority = default_authority()
         recipient = recipient_pubkey()
-        mint = default_mintfile()
+        mint = default_mint_pubkey()
 
         amount = self.client.token_amount(authority, mint)
         self.assertEqual(amount, balance)
@@ -108,9 +111,10 @@ class CliTest(unittest.TestCase):
 
             amount = random.randint(0, balance)
             if amount % 2:
-                _, code = runCli(f'transfer {recipient} {amount}')
+                _, code = runCli(f'transfer {amount} --recipient {recipient}')
             else:
-                _, code = runCli(f'transfer {RECIPIENT_PATH} {amount}')
+                _, code = runCli(
+                    f'transfer {amount} --recipient {RECIPIENT_PATH}')
 
             balance -= amount
             self.assertTrue(self.client.token_account_exists(recipient, mint))
@@ -131,7 +135,7 @@ class CliTest(unittest.TestCase):
         self.assertEqual(recipient_amount, initial_balance - balance)
         self.assertTrue(str(initial_balance - balance) in output)
 
-        _, code = runCli(f'tranfser {recipient} 0')
+        _, code = runCli(f'transfer {recipient} 0')
         self.assertNotEqual(code, 0)
 
     def test_initialization(self):
@@ -165,6 +169,7 @@ class CliTest(unittest.TestCase):
         emote = random.random() + random.randint(0, 100)
         tileset = random.random() + random.randint(0, 100)
         item = random.random() + random.randint(0, 100)
+        world = random.random() + random.randint(0, 100)
 
         args = '\n\t'.join(("initialize",
                             f"--character {character}",
@@ -172,6 +177,7 @@ class CliTest(unittest.TestCase):
                             f"--item {item}",
                             f"--pet {pet}",
                             f"--tileset {tileset}",
+                            f"--world {world}",
                             f"--recipient {r_1}",
                             f"--mint-share {m_1}",
                             f"--transaction-share {t_1}",
@@ -203,11 +209,35 @@ class CliTest(unittest.TestCase):
 
         recipient = recipient_pubkey()
         _, code = runCli(
-            f"transfer {recipient} 1 --mint-address {mint_address}")
+            f"transfer 1 --recipient {recipient} --mint-address {mint_address}")
         self.assertEqual(code, 0)
         self.assertEqual(client.token_amount(
             default_authority(), mint_address), 0)
         self.assertEqual(client.token_amount(recipient, mint_address), 1)
+
+    def test_withdraw_ft(self):
+        balance = 10000
+        runCli(f'mint {balance}')
+
+        account = Keypair.generate().public_key
+
+        output, code = runCli(f"create-wallet --account {account}")
+        self.assertEqual(code, 0)
+
+        wallet = PublicKey(output.splitlines()[0].split(': ')[1])
+        runCli(f"transfer {balance} --recipient {wallet}")
+
+        client = Client()
+        mint = default_mint_pubkey()
+        authority = default_authority()
+        self.assertEqual(client.token_amount(wallet, mint), balance)
+
+        _, code = runCli(
+            f"withdraw-ft {balance} --account {account} --recipient {authority}")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(client.token_amount(wallet, mint), 0)
+        self.assertEqual(client.token_amount(authority, mint), balance)
 
 
 if __name__ == '__main__':

@@ -5,7 +5,7 @@ from solana.publickey import PublicKey
 
 PROJECT_DIR = Path(__file__).parent.parent.parent
 EXECUTABLE_NAME = 'chill-cli'
-EXECUTABLE_PATH = PROJECT_DIR / 'target' / 'debug' / EXECUTABLE_NAME
+EXECUTABLE_PATH = PROJECT_DIR / 'target' / 'release' / EXECUTABLE_NAME
 DEFAULT_KEY_PATH = Path.home() / '.config' / 'solana' / 'id.json'
 DEFAULT_MINT_PATH = Path.cwd() / 'mint.devnet.pubkey'
 
@@ -28,14 +28,20 @@ def get_keypair(path):
         return Keypair.from_secret_key(keypair)
 
 
+def create_temporary_keypair():
+    keypair = Keypair.generate()
+    keypair_bytes = [int(b) for b in keypair.secret_key]
+    with open(DEFAULT_KEY_PATH, 'x', encoding='UTF-8') as file:
+        json.dump(keypair_bytes, file)
+
+
 def default_authority():
     path = Path.home() / '.config' / 'solana' / 'id.json'
     return get_keypair(path).public_key
 
 
-def default_mintfile():
-    path = Path.cwd() / 'mint.devnet.pubkey'
-    return get_mint_pubkey(path)
+def default_mint_pubkey():
+    return get_mint_pubkey(DEFAULT_MINT_PATH)
 
 
 def authority():

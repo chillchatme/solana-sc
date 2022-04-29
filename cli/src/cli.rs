@@ -1,30 +1,52 @@
 use crate::error::{CliError, Result};
+use anchor_client::{
+    solana_sdk::{pubkey::Pubkey, signature::Signer},
+    Cluster,
+};
 use chill_nft::{
-    instruction::MintNftArgs,
     state::{Config, NftType, Recipient, UiFees},
+    utils::NftArgs,
 };
 use clap::{
     crate_description, crate_name, crate_version, value_t_or_exit, values_t_or_exit, App,
     AppSettings, Arg, ArgMatches, SubCommand,
 };
+use lazy_static::lazy_static;
 use solana_clap_utils::{
     input_parsers::{pubkey_of, pubkeys_of},
-    input_validators::{is_pubkey, is_valid_pubkey, is_valid_signer},
+    input_validators::{
+        is_pubkey, is_pubkey_or_keypair, is_url_or_moniker, is_valid_signer,
+        normalize_to_url_if_moniker,
+    },
     keypair::signer_from_path,
 };
-use solana_sdk::{pubkey::Pubkey, signature::Signer};
-use std::{error, fs, path::Path, str::FromStr};
+use std::{error, fs, path::Path, rc::Rc, str::FromStr};
+
+lazy_static! {
+    pub static ref DEFAULT_KEYPAIR: Option<String> = {
+        dirs::home_dir().map(|mut path| {
+            path.extend(&[".config", "solana", "id.json"]);
+            path.to_str().unwrap().to_string()
+        })
+    };
+}
 
 const COMMAND_BALANCE: &str = "balance";
+const COMMAND_CREATE_WALLET: &str = "create-wallet";
 const COMMAND_INFO: &str = "info";
 const COMMAND_INITIALIZE: &str = "initialize";
 const COMMAND_MINT: &str = "mint";
 const COMMAND_MINT_NFT: &str = "mint-nft";
 const COMMAND_TRANSFER: &str = "transfer";
+const COMMAND_UPDATE_NFT: &str = "update-nft";
+const COMMAND_WITHDRAW_FT: &str = "withdraw-ft";
+const COMMAND_WITHDRAW_LAMPORTS: &str = "withdraw-lamports";
+const COMMAND_WITHDRAW_NFT: &str = "withdraw-nft";
 
+const ACCOUNT: &str = "account";
 const AMOUNT: &str = "amount";
 const AUTHORITY: &str = "authority";
-const ACCOUNT: &str = "account";
+const CREATOR: &str = "creator";
 const DECIMALS: &str = "decimals";
 const FEES: &str = "fees";
 const FEES_CHARACTER: &str = "character";
@@ -32,25 +54,32 @@ const FEES_EMOTE: &str = "emote";
 const FEES_ITEM: &str = "item";
 const FEES_PET: &str = "pet";
 const FEES_TILESET: &str = "tileset";
-const MAINNET: &str = "mainnet";
+const FEES_WORLD: &str = "world";
 const MINT: &str = "mint-address";
 const MINT_SHARE: &str = "mint-share";
 const NAME: &str = "name";
 const NFT_TYPE: &str = "type";
-const PROGRAM_ID: &str = "program-id";
+const PAYER: &str = "payer";
+const PRIMARY_WALLET: &str = "primary-wallet";
 const RECIPIENT: &str = "recipient";
+const RPC_URL: &str = "url";
 const SAVE_PATH: &str = "save-path";
 const SYMBOL: &str = "symbol";
 const TRANSACTION_SHARE: &str = "transaction-share";
-const URL: &str = "url";
+const URI: &str = "uri";
 
 pub enum CliCommand {
     Balance,
+    CreateWallet,
     Info,
     Initialize,
     Mint,
     MintNft,
+    UpdateNft,
     Transfer,
+    WithdrawLamports,
+    WithdrawFt,
+    WithdrawNft,
 }
 
 pub struct Cli<'a> {
@@ -102,24 +131,68 @@ impl<'a> Cli<'a> {
             "   * a path to a pubkey file"
         );
 
-        let authority = Arg::with_name(AUTHORITY)
-            .long(AUTHORITY)
+        let mut primary_wallet = Arg::with_name(PRIMARY_WALLET)
+            .long(PRIMARY_WALLET)
             .short("k")
-            .required(false)
             .takes_value(true)
             .value_name(account_address)
-            .validator(is_valid_signer);
+            .validator(is_valid_signer)
+            .help("Primary wallet keypair");
 
-        let account = authority.clone().long(ACCOUNT);
+        let mut payer = Arg::with_name(PAYER)
+            .long(PAYER)
+            .short("P")
+            .takes_value(true)
+            .value_name(account_address)
+            .validator(is_valid_signer)
+            .help("The account used to pay for the transactions");
 
-        let mint = Arg::with_name(MINT)
-            .long(MINT)
+        let mut account = Arg::with_name(ACCOUNT)
+            .long(ACCOUNT)
             .short("a")
-            .required(false)
+            .takes_value(true)
+            .value_name(account_address)
+            .validator(is_pubkey_or_keypair)
+            .help("Pubkey or keypair of the desired account");
+
+        let mut authority = Arg::with_name(AUTHORITY)
+            .long(AUTHORITY)
+            .short("A")
+            .takes_value(true)
+            .value_name(account_address)
+            .validator(is_valid_signer)
+            .help("Proxy wallet authority");
+
+        let mut recipient = Arg::with_name(RECIPIENT)
+            .long(RECIPIENT)
+            .short("r")
+            .takes_value(true)
+            .value_name(account_address)
+            .validator(is_pubkey_or_keypair)
+            .help("An account that will receive tokens");
+
+        if let Some(ref file) = *DEFAULT_KEYPAIR {
+            account = account.required(false).default_value(file);
+            authority = authority.required(false).default_value(file);
+            payer = payer.required(false).default_value(file);
+            primary_wallet = primary_wallet.required(false).default_value(file);
+            recipient = recipient.required(false).default_value(file);
+        } else {
+            account = account.required(true);
+            authority = authority.required(true);
+            payer = payer.required(true);
+            primary_wallet = primary_wallet.required(true);
+            recipient = recipient.required(true);
+        }
+
+        let required_mint = Arg::with_name(MINT)
+            .required(true)
             .takes_value(true)
             .value_name("MINT_ADDRESS")
             .validator(is_mint_pubkey)
-            .help("Chill mint pubkey");
+            .help("Mint pubkey");
+
+        let mint = required_mint.clone().required(false).short("m").long(MINT);
 
         let save_path = Arg::with_name(SAVE_PATH)
             .long(SAVE_PATH)
@@ -145,36 +218,23 @@ impl<'a> Cli<'a> {
             .default_value("9")
             .help("Number of base 10 digits to the right of the decimal place");
 
-        let mainnet = Arg::with_name(MAINNET)
-            .long(MAINNET)
-            .short("m")
-            .takes_value(false)
-            .help("Runs the command in the Mainnet");
-
-        let recipient = Arg::with_name(RECIPIENT)
+        let rpc = Arg::with_name(RPC_URL)
+            .long(RPC_URL)
+            .short("u")
+            .global(true)
             .takes_value(true)
-            .value_name("RECIPIENT_ADDRESS")
-            .validator(is_valid_signer)
-            .help("Recipient's account address");
-
-        let required_recipient = recipient.clone().required(true);
-        let optional_recipient = recipient.long(RECIPIENT).short("r");
-
-        let program_id = Arg::with_name(PROGRAM_ID)
-            .long(PROGRAM_ID)
-            .takes_value(true)
-            .value_name("ADDRESS")
-            .validator(is_valid_pubkey)
-            .help("Program id of the Chill smart-contract");
+            .validator(is_url_or_moniker)
+            .default_value("devnet")
+            .help("URL for Solana's JSON RPC or moniker (or their first letter)");
 
         let mint_command = SubCommand::with_name(COMMAND_MINT)
             .args(&[
                 amount_mint,
                 decimals,
-                mainnet.clone(),
                 mint.clone(),
-                authority.clone(),
-                optional_recipient.clone(),
+                recipient.clone(),
+                primary_wallet.clone(),
+                payer.clone(),
                 save_path,
             ])
             .about(
@@ -183,21 +243,21 @@ impl<'a> Cli<'a> {
             .after_help(account_address_help);
 
         let balance_command = SubCommand::with_name(COMMAND_BALANCE)
-            .args(&[mainnet.clone(), mint.clone(), account])
+            .args(&[mint.clone(), account.clone()])
             .about("Prints the balance of the token account")
             .after_help(account_address_help);
 
         let info_command = SubCommand::with_name(COMMAND_INFO)
-            .args(&[mainnet.clone(), mint.clone(), program_id.clone()])
+            .args(&[mint.clone()])
             .about("Prints the information about smart-contract state");
 
         let transfer_command = SubCommand::with_name(COMMAND_TRANSFER)
             .args(&[
-                mainnet.clone(),
+                recipient.clone(),
+                amount_transfer.clone(),
                 mint.clone(),
-                authority.clone(),
-                required_recipient,
-                amount_transfer,
+                primary_wallet.clone(),
+                payer.clone(),
             ])
             .about("Transfers a number of tokens to the destination address")
             .after_help(account_address_help);
@@ -213,7 +273,7 @@ impl<'a> Cli<'a> {
             .multiple(true)
             .max_values(Config::MAX_RECIPIENT_NUMBER as u64)
             .value_name("RECIPIENT_ADDRESS")
-            .validator(is_valid_pubkey);
+            .validator(is_pubkey_or_keypair);
 
         let mint_share = Arg::with_name(MINT_SHARE)
             .long(MINT_SHARE)
@@ -274,12 +334,19 @@ impl<'a> Cli<'a> {
             .value_name(fees_value_name)
             .help("Fees for mint an item NFT");
 
+        let fees_world = Arg::with_name(FEES_WORLD)
+            .long(FEES_WORLD)
+            .short("w")
+            .required(true)
+            .takes_value(true)
+            .value_name(fees_value_name)
+            .help("Fees for mint a world NFT");
+
         let initialize_command = SubCommand::with_name(COMMAND_INITIALIZE)
             .args(&[
-                mainnet.clone(),
                 mint.clone(),
-                authority.clone(),
-                program_id.clone(),
+                primary_wallet.clone(),
+                payer.clone(),
                 multiple_recipients,
                 mint_share,
                 transaction_share,
@@ -288,6 +355,7 @@ impl<'a> Cli<'a> {
                 fees_emote,
                 fees_tileset,
                 fees_item,
+                fees_world,
             ])
             .about("Initializes the Chill smart-contract")
             .after_help(account_address_help);
@@ -299,7 +367,7 @@ impl<'a> Cli<'a> {
         let nft_type = Arg::with_name(NFT_TYPE)
             .takes_value(true)
             .value_name("TYPE")
-            .possible_values(&["character", "pet", "emote", "tileset", "item"])
+            .possible_values(&["character", "pet", "emote", "tileset", "item", "world"])
             .required(true)
             .help("Nft type");
 
@@ -309,11 +377,11 @@ impl<'a> Cli<'a> {
             .required(true)
             .help("Name of the NFT");
 
-        let url = Arg::with_name(URL)
+        let uri = Arg::with_name(URI)
             .takes_value(true)
-            .value_name("URL")
+            .value_name("URI")
             .required(true)
-            .help("URL to the a NFT image");
+            .help("URI to the a NFT image");
 
         let symbol = Arg::with_name(SYMBOL)
             .long(SYMBOL)
@@ -323,44 +391,116 @@ impl<'a> Cli<'a> {
             .default_value("CHILL")
             .help("Symbol of the NFT");
 
+        let creator = Arg::with_name(CREATOR)
+            .long(CREATOR)
+            .short("c")
+            .takes_value(true)
+            .value_name(account_address)
+            .validator(is_pubkey_or_keypair)
+            .help("An account that will appear in the creators list");
+
         let fees = Arg::with_name(FEES)
             .long(FEES)
             .short("f")
             .takes_value(true)
             .value_name("PERCENT")
-            .default_value("2")
-            .help("");
+            .default_value("2");
 
         let mint_nft_command = SubCommand::with_name(COMMAND_MINT_NFT)
             .args(&[
+                fees.clone(),
+                mint.clone(),
                 nft_type,
-                name,
-                url,
-                symbol,
-                fees,
-                authority,
-                mint,
-                optional_recipient,
-                program_id,
-                mainnet,
+                name.clone(),
+                creator,
+                payer.clone(),
+                recipient.clone(),
+                primary_wallet.clone(),
+                symbol.clone(),
+                uri.clone(),
             ])
             .about("Creates a new NFT")
             .after_help(account_address_help);
 
         //
-        // App
+        // UpdateNft
         //
+
+        let update_nft_command = SubCommand::with_name(COMMAND_UPDATE_NFT)
+            .args(&[
+                fees.clone(),
+                required_mint.clone(),
+                name,
+                payer.clone(),
+                primary_wallet.clone(),
+                symbol,
+                uri,
+            ])
+            .about("Updates an NFT metadata")
+            .after_help(account_address_help);
+
+        //
+        // Proxy wallets
+        //
+
+        let create_wallet_command = SubCommand::with_name(COMMAND_CREATE_WALLET)
+            .args(&[primary_wallet.clone(), account.clone(), payer.clone()])
+            .about("Creates a proxy wallet")
+            .after_help(account_address_help);
+
+        let withdraw_lamports_command = SubCommand::with_name(COMMAND_WITHDRAW_LAMPORTS)
+            .args(&[
+                account.clone(),
+                amount_transfer.clone(),
+                authority.clone(),
+                payer.clone(),
+                primary_wallet.clone(),
+                recipient.clone(),
+            ])
+            .about("Withdraws lamports from proxy wallet")
+            .after_help(account_address_help);
+
+        let withdraw_ft_command = SubCommand::with_name(COMMAND_WITHDRAW_FT)
+            .args(&[
+                account.clone(),
+                amount_transfer.clone(),
+                authority.clone(),
+                payer.clone(),
+                primary_wallet.clone(),
+                recipient.clone(),
+                mint.clone(),
+            ])
+            .about("Withdraws FT from proxy wallet")
+            .after_help(account_address_help);
+
+        let withdraw_nft_command = SubCommand::with_name(COMMAND_WITHDRAW_NFT)
+            .args(&[
+                account.clone(),
+                authority.clone(),
+                payer.clone(),
+                primary_wallet.clone(),
+                recipient.clone(),
+                required_mint.clone(),
+            ])
+            .about("Withdraws NFT from proxy wallet")
+            .after_help(account_address_help);
 
         App::new(crate_name!())
             .about(crate_description!())
             .version(crate_version!())
+            .arg(rpc)
             .subcommands(vec![
                 balance_command,
                 info_command,
                 initialize_command,
                 mint_command,
                 mint_nft_command,
+                update_nft_command,
                 transfer_command,
+                create_wallet_command,
+                withdraw_lamports_command,
+                withdraw_ft_command,
+                withdraw_nft_command,
             ])
             .setting(AppSettings::SubcommandRequiredElseHelp)
     }
@@ -368,11 +508,16 @@ impl<'a> Cli<'a> {
     fn get_matches(&self) -> (&'static str, &ArgMatches<'a>) {
         match self.matches.subcommand() {
             (COMMAND_BALANCE, Some(matcher)) => (COMMAND_BALANCE, matcher),
+            (COMMAND_CREATE_WALLET, Some(matcher)) => (COMMAND_CREATE_WALLET, matcher),
             (COMMAND_INFO, Some(matcher)) => (COMMAND_INFO, matcher),
             (COMMAND_INITIALIZE, Some(matcher)) => (COMMAND_INITIALIZE, matcher),
             (COMMAND_MINT, Some(matcher)) => (COMMAND_MINT, matcher),
             (COMMAND_MINT_NFT, Some(matcher)) => (COMMAND_MINT_NFT, matcher),
+            (COMMAND_UPDATE_NFT, Some(matcher)) => (COMMAND_UPDATE_NFT, matcher),
             (COMMAND_TRANSFER, Some(matcher)) => (COMMAND_TRANSFER, matcher),
+            (COMMAND_WITHDRAW_FT, Some(matcher)) => (COMMAND_WITHDRAW_FT, matcher),
+            (COMMAND_WITHDRAW_LAMPORTS, Some(matcher)) => (COMMAND_WITHDRAW_LAMPORTS, matcher),
+            (COMMAND_WITHDRAW_NFT, Some(matcher)) => (COMMAND_WITHDRAW_NFT, matcher),
             _ => unimplemented!(),
         }
     }
@@ -380,11 +525,16 @@ impl<'a> Cli<'a> {
     pub fn command(&self) -> CliCommand {
         match self.get_matches().0 {
             COMMAND_BALANCE => CliCommand::Balance,
+            COMMAND_CREATE_WALLET => CliCommand::CreateWallet,
             COMMAND_INFO => CliCommand::Info,
             COMMAND_INITIALIZE => CliCommand::Initialize,
             COMMAND_MINT => CliCommand::Mint,
             COMMAND_MINT_NFT => CliCommand::MintNft,
+            COMMAND_UPDATE_NFT => CliCommand::UpdateNft,
             COMMAND_TRANSFER => CliCommand::Transfer,
+            COMMAND_WITHDRAW_FT => CliCommand::WithdrawFt,
+            COMMAND_WITHDRAW_LAMPORTS => CliCommand::WithdrawLamports,
+            COMMAND_WITHDRAW_NFT => CliCommand::WithdrawNft,
             _ => unimplemented!(),
         }
     }
@@ -406,7 +556,13 @@ impl<'a> Cli<'a> {
             .unwrap_or_else(|| self.default_mint_file())
     }
 
-    pub fn mint_args(&self) -> Result<MintNftArgs> {
+    pub fn nft_type(&self) -> NftType {
+        let matches = self.get_matches().1;
+        let nft_type_str = matches.value_of(NFT_TYPE).unwrap();
+        NftType::try_from(nft_type_str).unwrap()
+    }
+
+    pub fn mint_args(&self) -> Result<NftArgs> {
         let matches = self.get_matches().1;
         let ui_fees = value_t_or_exit!(matches, FEES, f32);
         if !(0.0..=100.0).contains(&ui_fees) {
@@ -416,63 +572,70 @@ impl<'a> Cli<'a> {
         let fees = (ui_fees * 100.0).round() as u16;
         let name = matches.value_of(NAME).unwrap().to_owned();
         let symbol = matches.value_of(SYMBOL).unwrap().to_owned();
-        let url = matches.value_of(URL).unwrap().to_owned();
-        let nft_type_str = matches.value_of(NFT_TYPE).unwrap();
-        let nft_type = NftType::try_from(nft_type_str).unwrap();
+        let uri = matches.value_of(URI).unwrap().to_owned();
 
-        Ok(MintNftArgs {
-            nft_type,
+        Ok(NftArgs {
             name,
             symbol,
-            url,
+            uri,
             fees,
         })
     }
 
-    fn get_signer(
-        &self,
-        key: &str,
-    ) -> core::result::Result<Option<Box<dyn Signer>>, Box<dyn error::Error>> {
+    fn get_signer(&self, key: &str) -> core::result::Result<Rc<dyn Signer>, Box<dyn error::Error>> {
         let matches = self.get_matches().1;
-        if matches.is_present(key) {
-            let signer_path = matches.value_of(key).unwrap();
-            let signer = signer_from_path(matches, signer_path, key, &mut None)?;
-            Ok(Some(signer))
-        } else {
-            Ok(None)
-        }
+        let signer_path = matches.value_of(key).unwrap();
+        signer_from_path(matches, signer_path, key, &mut None).map(Rc::from)
     }
 
-    fn get_pubkey(&self, key: &str) -> Option<Pubkey> {
+    fn get_pubkey(&self, key: &str) -> Pubkey {
         let matches = self.get_matches().1;
-        matches
-            .value_of(key)
-            .map(|_| pubkey_of(matches, key).unwrap())
+        pubkey_of(matches, key).unwrap()
     }
 
-    pub fn recipient_pubkey(&self) -> Option<Pubkey> {
+    pub fn account(&self) -> Pubkey {
+        self.get_pubkey(ACCOUNT)
+    }
+
+    pub fn recipient(&self) -> Pubkey {
         self.get_pubkey(RECIPIENT)
     }
 
-    pub fn recipient(&self) -> Result<Option<Box<dyn Signer>>> {
-        self.get_signer(RECIPIENT)
-            .map_err(|e| CliError::CannotGetRecipient(e.to_string()).into())
+    pub fn creator(&self) -> Option<Pubkey> {
+        let matches = self.get_matches().1;
+        if !matches.is_present(CREATOR) {
+            return None;
+        }
+        Some(pubkey_of(matches, RECIPIENT).unwrap())
     }
 
-    pub fn authority_pubkey(&self) -> Option<Pubkey> {
-        self.get_pubkey(AUTHORITY)
+    pub fn primary_wallet_pubkey(&self) -> Pubkey {
+        self.get_pubkey(PRIMARY_WALLET)
     }
 
-    pub fn authority(&self) -> Result<Option<Box<dyn Signer>>> {
+    pub fn primary_wallet(&self) -> Result<Rc<dyn Signer>> {
+        self.get_signer(PRIMARY_WALLET)
+            .map_err(|e| CliError::CannotGetPrimaryWallet(e.to_string()).into())
+    }
+
+    pub fn payer(&self) -> Result<Rc<dyn Signer>> {
+        self.get_signer(PAYER)
+            .map_err(|e| CliError::CannotGetPayer(e.to_string()).into())
+    }
+
+    pub fn authority(&self) -> Result<Rc<dyn Signer>> {
         self.get_signer(AUTHORITY)
             .map_err(|e| CliError::CannotGetAuthority(e.to_string()).into())
     }
 
     fn default_mint_file(&self) -> &str {
-        if self.mainnet() {
-            "mint.mainnet.pubkey"
-        } else {
-            "mint.devnet.pubkey"
+        match self.cluster() {
+            Cluster::Testnet => "mint.testnet.pubkey",
+            Cluster::Mainnet => "mint.mainnet.pubkey",
+            Cluster::Devnet => "mint.devnet.pubkey",
+            Cluster::Localnet => "mint.localnet.pubkey",
+            Cluster::Debug => "mint.debug.pubkey",
+            Cluster::Custom(_, _) => "mint.url.pubkey",
         }
     }
 
@@ -499,11 +662,6 @@ impl<'a> Cli<'a> {
         self.parse_mint(mint)
     }
 
-    pub fn mainnet(&self) -> bool {
-        let matches = self.get_matches().1;
-        matches.is_present(MAINNET)
-    }
-
     pub fn fees(&self) -> UiFees {
         let matches = self.get_matches().1;
         UiFees {
@@ -512,6 +670,7 @@ impl<'a> Cli<'a> {
             emote: value_t_or_exit!(matches, FEES_EMOTE, f64),
             tileset: value_t_or_exit!(matches, FEES_TILESET, f64),
             item: value_t_or_exit!(matches, FEES_ITEM, f64),
+            world: value_t_or_exit!(matches, FEES_WORLD, f64),
         }
     }
 
@@ -550,362 +709,15 @@ impl<'a> Cli<'a> {
             .collect())
     }
 
-    pub fn program_id(&self) -> Pubkey {
+    pub fn cluster(&self) -> Cluster {
         let matches = self.get_matches().1;
-        pubkey_of(matches, PROGRAM_ID).unwrap_or(chill_nft::ID)
+        let cluster = matches.value_of(RPC_URL).unwrap();
+        Cluster::from_str(cluster).unwrap()
     }
 
-    pub fn rpc_url(&self) -> &'static str {
-        if self.mainnet() {
-            "https://api.mainnet-beta.solana.com"
-        } else {
-            "https://api.devnet.solana.com"
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rand::{prelude::SliceRandom, thread_rng, Rng};
-    use solana_sdk::signature::{read_keypair_file, Keypair};
-
-    const MINT_PATH: &str = "../localnet/mint.pubkey.localnet";
-    const AUTHORITY_PATH: &str = "../localnet/authority.json";
-    const RECIPIENT_PATH: &str = "../localnet/recipient.json";
-
-    fn get_cli<'a>(args: &[&'a str]) -> Cli<'a> {
-        let mut argv = vec![crate_name!()];
-        argv.extend(args);
-
-        let app = Cli::build_app();
-        let matches = app.get_matches_from(argv);
-        Cli { matches }
-    }
-
-    fn mint_pubkey() -> Pubkey {
-        let pubkey_str = fs::read_to_string(MINT_PATH).unwrap();
-        Pubkey::from_str(pubkey_str.trim()).unwrap()
-    }
-
-    fn authority() -> Keypair {
-        read_keypair_file(AUTHORITY_PATH).unwrap()
-    }
-
-    fn recipient() -> Keypair {
-        read_keypair_file(RECIPIENT_PATH).unwrap()
-    }
-
-    #[test]
-    fn mint() {
-        let amount = "1000";
-        let cli = get_cli(&[COMMAND_MINT, amount]);
-
-        assert!(!cli.mainnet());
-        assert!(cli.recipient_pubkey().is_none());
-        assert!(cli.default_mint_file().contains("devnet"));
-        assert!(cli.mint().unwrap().is_none());
-        assert_eq!(cli.decimals(), 9);
-        assert_eq!(cli.authority().unwrap(), None);
-        assert_eq!(cli.save_path(), cli.default_mint_file());
-        assert_eq!(cli.ui_amount().to_string(), amount);
-
-        let decimals = "0";
-        let all_args_string = format!(
-            "{0} {1} --{2} {3} --{4} {5} --{6} {7} --{8} {9} --{10}",
-            COMMAND_MINT,
-            amount,
-            AUTHORITY,
-            AUTHORITY_PATH,
-            DECIMALS,
-            decimals,
-            MINT,
-            MINT_PATH,
-            RECIPIENT,
-            recipient().pubkey(),
-            MAINNET
-        );
-
-        let args = all_args_string.split(' ').collect::<Vec<&str>>();
-        let cli = get_cli(&args);
-
-        assert!(cli.default_mint_file().contains("mainnet"));
-        assert!(cli.mainnet());
-        assert_eq!(cli.decimals().to_string(), decimals);
-        assert_eq!(cli.mint().unwrap(), Some(mint_pubkey()));
-        assert_eq!(
-            cli.authority().unwrap().unwrap().pubkey(),
-            authority().pubkey()
-        );
-        assert_eq!(cli.save_path(), cli.default_mint_file());
-        assert_eq!(cli.recipient_pubkey(), Some(recipient().pubkey()));
-        assert_eq!(cli.ui_amount().to_string(), amount);
-    }
-
-    #[test]
-    fn balance() {
-        let cli = get_cli(&[COMMAND_BALANCE]);
-
-        assert!(!cli.mainnet());
-        assert!(cli.mint().unwrap().is_none());
-        assert_eq!(cli.authority().unwrap(), None);
-
-        let args_with_mint_as_pubkey =
-            format!("{0} --{1} {2}", COMMAND_BALANCE, MINT, mint_pubkey());
-
-        let args = args_with_mint_as_pubkey.split(' ').collect::<Vec<&str>>();
-        let cli = get_cli(&args);
-        assert_eq!(cli.mint().unwrap(), Some(mint_pubkey()));
-
-        let all_args_string = format!(
-            "{0} --{1} {2} --{3} {4} --{5}",
-            COMMAND_BALANCE, ACCOUNT, AUTHORITY_PATH, MINT, MINT_PATH, MAINNET
-        );
-
-        let args = all_args_string.split(' ').collect::<Vec<&str>>();
-        let cli = get_cli(&args);
-
-        assert!(cli.mainnet());
-        assert_eq!(cli.mint().unwrap(), Some(mint_pubkey()));
-        assert_eq!(
-            cli.authority().unwrap().unwrap().pubkey(),
-            authority().pubkey()
-        );
-    }
-
-    #[test]
-    fn transfer() {
-        let amount = "1000";
-        let cli = get_cli(&[COMMAND_TRANSFER, RECIPIENT_PATH, amount]);
-
-        assert!(!cli.mainnet());
-        assert!(cli.mint().unwrap().is_none());
-        assert_eq!(cli.authority().unwrap(), None);
-        assert_eq!(cli.recipient_pubkey(), Some(recipient().pubkey()));
-        assert_eq!(cli.ui_amount().to_string(), amount);
-
-        let recipient_pubkey = recipient().pubkey().to_string();
-        let cli = get_cli(&[COMMAND_TRANSFER, &recipient_pubkey, amount]);
-        assert_eq!(cli.recipient_pubkey(), Some(recipient().pubkey()));
-
-        let all_args_string = format!(
-            "{0} {1} {2} --{3} {4} --{5} {6} --{7}",
-            COMMAND_TRANSFER,
-            RECIPIENT_PATH,
-            amount,
-            MINT,
-            MINT_PATH,
-            AUTHORITY,
-            AUTHORITY_PATH,
-            MAINNET
-        );
-
-        let args = all_args_string.split(' ').collect::<Vec<&str>>();
-        let cli = get_cli(&args);
-
-        assert!(cli.mainnet());
-        assert_eq!(cli.mint().unwrap(), Some(mint_pubkey()));
-        assert_eq!(
-            cli.authority().unwrap().unwrap().pubkey(),
-            authority().pubkey()
-        );
-        assert_eq!(cli.recipient_pubkey(), Some(recipient().pubkey()));
-        assert_eq!(cli.ui_amount().to_string(), amount);
-    }
-
-    #[test]
-    fn initialize() {
-        let mut rng = thread_rng();
-        for _ in 0..100 {
-            let fees = UiFees {
-                character: rng.gen(),
-                pet: rng.gen(),
-                emote: rng.gen(),
-                tileset: rng.gen(),
-                item: rng.gen(),
-            };
-
-            let recipient = Recipient {
-                address: Keypair::new().pubkey(),
-                mint_share: 100,
-                transaction_share: 100,
-            };
-
-            let args_str = format!(
-                "{0} --{1} {2} --{3} {4} --{5} {6} --{7} {8} --{9} {10} --{11} {12}",
-                COMMAND_INITIALIZE,
-                FEES_CHARACTER,
-                fees.character,
-                FEES_EMOTE,
-                fees.emote,
-                FEES_ITEM,
-                fees.item,
-                FEES_PET,
-                fees.pet,
-                FEES_TILESET,
-                fees.tileset,
-                RECIPIENT,
-                recipient.address
-            );
-
-            let args = args_str.split(' ').collect::<Vec<_>>();
-            let cli = get_cli(&args);
-
-            assert!(!cli.mainnet());
-            assert!(cli.mint().unwrap().is_none());
-            assert_eq!(cli.authority().unwrap(), None);
-            assert_eq!(cli.multiple_recipients().unwrap(), vec![recipient]);
-            assert_eq!(cli.fees(), fees);
-
-            let recipients = (0..Config::MAX_RECIPIENT_NUMBER)
-                .map(|_| Recipient {
-                    address: Keypair::new().pubkey(),
-                    mint_share: rng.gen_range(0..=100),
-                    transaction_share: rng.gen_range(0..=100),
-                })
-                .collect::<Vec<_>>();
-
-            let mut args_str = format!(
-            "{0} --{1} {2} --{3} {4} --{5} {6} --{7} {8} --{9} {10} --{11} --{12} {13} --{14} {15}",
-            COMMAND_INITIALIZE,
-            FEES_CHARACTER,
-            fees.character,
-            FEES_EMOTE,
-            fees.emote,
-            FEES_ITEM,
-            fees.item,
-            FEES_PET,
-            fees.pet,
-            FEES_TILESET,
-            fees.tileset,
-            MAINNET,
-            MINT,
-            MINT_PATH,
-            AUTHORITY,
-            AUTHORITY_PATH
-        );
-
-            for recipient in recipients.iter() {
-                let recipient_args = format!(
-                    " --{0} {1} --{2} {3} --{4} {5}",
-                    RECIPIENT,
-                    recipient.address,
-                    MINT_SHARE,
-                    recipient.mint_share,
-                    TRANSACTION_SHARE,
-                    recipient.transaction_share
-                );
-
-                args_str.push_str(&recipient_args);
-            }
-
-            let args = args_str.split(' ').collect::<Vec<_>>();
-            let cli = get_cli(&args);
-
-            assert!(cli.mainnet());
-            assert_eq!(cli.mint().unwrap(), Some(mint_pubkey()));
-            assert_eq!(
-                cli.authority().unwrap().unwrap().pubkey(),
-                authority().pubkey()
-            );
-            assert_eq!(cli.multiple_recipients().unwrap(), recipients);
-            assert_eq!(cli.fees(), fees);
-        }
-    }
-
-    #[test]
-    fn mint_nft() {
-        let mut rng = thread_rng();
-        let nft_types = &["character", "pet", "emote", "tileset", "item"];
-
-        for _ in 0..100 {
-            let nft_type = nft_types.choose(&mut rng).unwrap();
-            let fees = rng.gen_range(0..=10000);
-            let ui_fees = fees as f32 / 100.0;
-
-            let mint_args = MintNftArgs {
-                nft_type: NftType::try_from(*nft_type).unwrap(),
-                name: format!("NAME_{0}", rng.gen_range(0..100)),
-                symbol: format!("SYM_{0}", rng.gen_range(0..100)),
-                url: format!("https://arweave.com/{0}", Keypair::new().pubkey()),
-                fees,
-            };
-
-            let args_str = format!(
-                "{0} {1} {2} {3}",
-                COMMAND_MINT_NFT, nft_type, mint_args.name, mint_args.url,
-            );
-            let args = args_str.split(' ').collect::<Vec<_>>();
-            let cli = get_cli(&args);
-            let cli_mint_args = cli.mint_args().unwrap();
-
-            assert!(!cli.mainnet());
-            assert!(cli.mint().unwrap().is_none());
-            assert_eq!(cli.authority().unwrap(), None);
-            assert_eq!(cli.program_id(), chill_nft::ID);
-            assert_eq!(cli.recipient().unwrap(), None);
-            assert_eq!(cli.recipient_pubkey(), None);
-            assert_eq!(cli_mint_args.name, mint_args.name);
-            assert_eq!(cli_mint_args.url, mint_args.url);
-            assert_eq!(cli_mint_args.nft_type, mint_args.nft_type);
-
-            let args_str = format!(
-                "{0} {1} {2} {3} --{4} {5} --{6} {7}",
-                COMMAND_MINT_NFT,
-                nft_type,
-                mint_args.name,
-                mint_args.url,
-                RECIPIENT,
-                recipient().pubkey(),
-                FEES,
-                101
-            );
-
-            let args = args_str.split(' ').collect::<Vec<_>>();
-            let cli = get_cli(&args);
-            assert!(cli.recipient().is_err());
-            assert!(cli.mint_args().is_err());
-            assert_eq!(cli.recipient_pubkey(), Some(recipient().pubkey()));
-
-            let new_program_id = Keypair::new().pubkey();
-            let args_str = format!(
-            "{0} {1} {2} {3} --{4} {5} --{6} {7} --{8} {9} --{10} {11} --{12} {13} --{14} {15} --{16}",
-            COMMAND_MINT_NFT,
-            nft_type,
-            mint_args.name,
-            mint_args.url,
-            SYMBOL,
-            mint_args.symbol,
-            FEES,
-            ui_fees,
-            AUTHORITY,
-            AUTHORITY_PATH,
-            MINT,
-            MINT_PATH,
-            RECIPIENT,
-            RECIPIENT_PATH,
-            PROGRAM_ID,
-            new_program_id,
-            MAINNET
-        );
-
-            let args = args_str.split(' ').collect::<Vec<_>>();
-            let cli = get_cli(&args);
-            let cli_mint_args = cli.mint_args().unwrap();
-
-            assert!(cli.mainnet());
-            assert_eq!(cli_mint_args, mint_args);
-            assert_eq!(cli.mint().unwrap(), Some(mint_pubkey()));
-            assert_eq!(
-                cli.authority().unwrap().unwrap().pubkey(),
-                authority().pubkey()
-            );
-            assert_eq!(
-                cli.recipient().unwrap().unwrap().pubkey(),
-                recipient().pubkey()
-            );
-            assert_eq!(cli.recipient_pubkey(), Some(recipient().pubkey()));
-            assert_eq!(cli.program_id(), new_program_id);
-        }
+    pub fn rpc_url(&self) -> String {
+        let matches = self.get_matches().1;
+        let url_or_moniker = matches.value_of(RPC_URL).unwrap();
+        normalize_to_url_if_moniker(url_or_moniker)
     }
 }

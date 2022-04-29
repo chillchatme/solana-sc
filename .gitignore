@@ -1,4 +1,11 @@
-/target
-Cargo.lock
-*.pubkey
+# Folders
+/.anchor/
+/target/
+/node_modules/
 __pycache__/
+
+# Files
+/Cargo.lock
+/package-lock.json
+/yarn.lock
+*.pubkey
