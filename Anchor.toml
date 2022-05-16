@@ -1,6 +1,7 @@
 [programs.localnet]
 chill_nft = "E9Zy6VNmQNXj4MiCLjgzJ2png3zfQfosdxRiQ5bornAM"
 chill_wallet = "9HjUbHc9JmSwEa9vkATjJCoaAhJYbkcqXE64CafXDrPt"
+chill_staking = "7EbJfNdsRx1VgHbQgFCZsZZJBm2eDQC3PkKxTSjiabHm"
 
 [registry]
 url = "https://anchor.projectserum.com"
