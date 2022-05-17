@@ -1,5 +1,5 @@
 use crate::{
-    state::{StakingInfo, StakingTokenAuthority},
+    state::{StakingInfo, StakingTokenAuthority, UserInfo, DAYS_IN_WINDOW},
     InitializeArgs,
 };
 use anchor_lang::prelude::*;
@@ -80,4 +80,30 @@ pub struct RedeemRemainingRewardTokens<'info> {
 #[derive(Accounts)]
 pub struct ViewStaking<'info> {
     pub staking_info: Account<'info, StakingInfo>,
+}
+
+#[derive(Accounts)]
+pub struct Stake<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+
+    #[account(init_if_needed, payer = user, space = UserInfo::LEN + DAYS_IN_WINDOW as usize,
+              seeds = [staking_info.key().as_ref(), user.key().as_ref()], bump)]
+    pub user_info: Account<'info, UserInfo>,
+
+    #[account(mut)]
+    pub user_token_account: Account<'info, TokenAccount>,
+
+    #[account(mut)]
+    pub staking_info: Account<'info, StakingInfo>,
+
+    #[account(seeds = [staking_info.key().as_ref()], bump = staking_token_authority.bump)]
+    pub staking_token_authority: Account<'info, StakingTokenAuthority>,
+
+    #[account(mut, associated_token::mint = staking_info.mint, associated_token::authority = staking_token_authority)]
+    pub staking_token_account: Account<'info, TokenAccount>,
+
+    pub system_program: Program<'info, System>,
+
+    pub token_program: Program<'info, Token>,
 }

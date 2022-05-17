@@ -7,6 +7,7 @@ pub mod error;
 pub mod event;
 pub mod lazy_vector;
 pub mod state;
+pub mod utils;
 
 declare_id!("7EbJfNdsRx1VgHbQgFCZsZZJBm2eDQC3PkKxTSjiabHm");
 
@@ -107,6 +108,56 @@ pub mod chill_staking {
 
         token::transfer(cpi_context, staking_token_account.amount)?;
         stake_info.reward_tokens_amount = 0;
+
+        Ok(())
+    }
+
+    pub fn stake(ctx: Context<Stake>, amount: u64) -> Result<()> {
+        let staking_info = &mut ctx.accounts.staking_info;
+        let user_info = &mut ctx.accounts.user_info;
+
+        staking_info.assert_not_finished()?;
+
+        user_info.user = ctx.accounts.user.key();
+        user_info.staking_info = staking_info.key();
+
+        let cpi_context = CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            token::Transfer {
+                from: ctx.accounts.user_token_account.to_account_info(),
+                to: ctx.accounts.staking_token_account.to_account_info(),
+                authority: ctx.accounts.user.to_account_info(),
+            },
+        );
+
+        token::transfer(cpi_context, amount)?;
+        emit!(event::Stake {
+            user: ctx.accounts.user.key(),
+            amount
+        });
+
+        if user_info.has_active_stake() {
+            user_info.pending_amount = user_info.pending_amount.checked_add(amount).unwrap();
+            return Ok(());
+        }
+
+        let increase = user_info.pending_amount.checked_add(amount).unwrap();
+        user_info.start_day = Some(utils::current_day()?);
+        user_info.staked_amount = user_info.staked_amount.checked_add(increase).unwrap();
+        user_info.pending_amount = 0;
+        user_info.total_staked_amount =
+            user_info.total_staked_amount.checked_add(increase).unwrap();
+
+        let mut staking_amounts = staking_info.get_vector()?;
+        let day_index = staking_info.day_index()? as usize;
+        let previous_amount = staking_amounts.get(day_index)?;
+        let new_amount = previous_amount.checked_add(increase).unwrap();
+
+        staking_amounts.set(day_index, &new_amount)?;
+        staking_info.total_staked_amount = staking_info
+            .total_staked_amount
+            .checked_add(increase)
+            .unwrap();
 
         Ok(())
     }

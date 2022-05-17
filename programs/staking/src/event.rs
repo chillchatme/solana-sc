@@ -4,3 +4,9 @@ use anchor_lang::prelude::*;
 pub struct AddRewardTokens {
     pub amount: u64,
 }
+
+#[event]
+pub struct Stake {
+    pub user: Pubkey,
+    pub amount: u64,
+}

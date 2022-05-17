@@ -1,6 +1,7 @@
 use crate::{
     error::ErrorCode,
     lazy_vector::{GetLazyVector, LazyVector},
+    utils,
 };
 use anchor_lang::prelude::*;
 
@@ -32,47 +33,52 @@ pub struct StakingInfo {
     pub start_day: u64,
     pub end_day: u64,
 
-    pub last_update_time: i64,
     pub reward_tokens_amount: u64,
 
     // Statistics
-    pub total_rewarded_amount: u64,
     pub total_staked_amount: u64,
+    pub total_rewarded_amount: u64,
 }
 
 impl StakingInfo {
     pub const LEN: usize = DESCRIMINATOR_LEN + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 8;
 
     pub fn assert_not_finished(&self) -> Result<()> {
-        let current_day = self.current_day()?;
+        let current_day = utils::current_day()?;
         require_gt!(self.end_day, current_day, ErrorCode::StakingIsFinished);
 
         Ok(())
     }
 
     pub fn assert_finished(&self) -> Result<()> {
-        let current_day = self.current_day()?;
+        let current_day = utils::current_day()?;
         require_gte!(current_day, self.end_day, ErrorCode::StakingIsNotFinished);
 
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<()> {
-        let clock = Clock::get()?;
-        self.last_update_time = clock.unix_timestamp;
+    /// daily_staking_reward = (total_staking_reward - already_rewarded) / (total_days - current_day_index) / 2
+    pub fn daily_staking_reward(&self) -> Result<u64> {
+        let current_day = utils::current_day()?;
 
-        Ok(())
+        let remaining_days = self.end_day.checked_sub(current_day).unwrap();
+        let remaining_reward_tokens = self
+            .reward_tokens_amount
+            .checked_sub(self.total_rewarded_amount)
+            .unwrap();
+
+        Ok(remaining_reward_tokens
+            .checked_div(remaining_days.checked_mul(2).unwrap())
+            .unwrap())
     }
 
     pub fn day_index(&self) -> Result<u64> {
-        let current_day = self.current_day()?;
+        let current_day = utils::current_day()?;
         Ok(current_day.checked_sub(self.start_day).unwrap())
     }
 
-    pub fn current_day(&self) -> Result<u64> {
-        let clock = Clock::get()?;
-        let timestamp = clock.unix_timestamp as u64;
-        Ok(timestamp.checked_div(SEC_PER_DAY).unwrap())
+    pub fn total_days(&self) -> u64 {
+        self.end_day.checked_sub(self.start_day).unwrap()
     }
 }
 
@@ -92,11 +98,35 @@ impl<'info> GetLazyVector<'info, u64> for Account<'info, StakingInfo> {
 
 #[account]
 pub struct UserInfo {
-    pub pubkey: Pubkey,
+    pub user: Pubkey,
+    pub staking_info: Pubkey,
+
+    pub start_day: Option<u64>,
     pub staked_amount: u64,
     pub pending_amount: u64,
+    pub rewarded_amount: u64,
 
     // Statistics
     pub total_staked_amount: u64,
     pub total_rewarded_amount: u64,
+}
+
+impl UserInfo {
+    pub const LEN: usize = DESCRIMINATOR_LEN + 32 + 32 + 1 + 8 + 8 + 8 + 8 + 8 + 8;
+
+    pub fn has_active_stake(&self) -> bool {
+        self.start_day.is_some()
+    }
+}
+
+impl<'info> GetLazyVector<'info, bool> for Account<'info, UserInfo> {
+    fn get_vector(&self) -> Result<LazyVector<'info, bool>> {
+        let account_info = self.to_account_info();
+        LazyVector::new(
+            UserInfo::LEN,
+            DAYS_IN_WINDOW.try_into().unwrap(),
+            std::mem::size_of::<bool>(),
+            account_info.data,
+        )
+    }
 }
