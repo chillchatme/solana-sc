@@ -83,6 +83,11 @@ pub struct ViewStaking<'info> {
 }
 
 #[derive(Accounts)]
+pub struct ViewUser<'info> {
+    pub user_info: Account<'info, UserInfo>,
+}
+
+#[derive(Accounts)]
 pub struct Stake<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
@@ -91,8 +96,8 @@ pub struct Stake<'info> {
               seeds = [staking_info.key().as_ref(), user.key().as_ref()], bump)]
     pub user_info: Account<'info, UserInfo>,
 
-    #[account(mut)]
-    pub user_token_account: Account<'info, TokenAccount>,
+    #[account(mut, token::mint = staking_info.mint)]
+    pub from_token_account: Account<'info, TokenAccount>,
 
     #[account(mut)]
     pub staking_info: Account<'info, StakingInfo>,
@@ -104,6 +109,28 @@ pub struct Stake<'info> {
     pub staking_token_account: Account<'info, TokenAccount>,
 
     pub system_program: Program<'info, System>,
+
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct Claim<'info> {
+    pub user: Signer<'info>,
+
+    #[account(mut, seeds = [staking_info.key().as_ref(), user.key().as_ref()], bump = user_info.bump)]
+    pub user_info: Account<'info, UserInfo>,
+
+    #[account(mut, token::mint = staking_info.mint)]
+    pub recipient_token_account: Account<'info, TokenAccount>,
+
+    #[account(mut)]
+    pub staking_info: Account<'info, StakingInfo>,
+
+    #[account(seeds = [staking_info.key().as_ref()], bump = staking_token_authority.bump)]
+    pub staking_token_authority: Account<'info, StakingTokenAuthority>,
+
+    #[account(mut, associated_token::mint = staking_info.mint, associated_token::authority = staking_token_authority)]
+    pub staking_token_account: Account<'info, TokenAccount>,
 
     pub token_program: Program<'info, Token>,
 }

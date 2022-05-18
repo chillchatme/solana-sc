@@ -16,4 +16,13 @@ pub enum ErrorCode {
 
     #[msg("Staking is not finished yet")]
     StakingIsNotFinished,
+
+    #[msg("Adding zero tokens to pending amount")]
+    AddZeroTokensToPendingAmount,
+
+    #[msg("Stake zero tokens")]
+    StakeZeroTokens,
+
+    #[msg("Withdraw zero tokens")]
+    WithdrawZeroTokens,
 }

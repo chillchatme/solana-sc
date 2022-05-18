@@ -57,19 +57,19 @@ impl StakingInfo {
         Ok(())
     }
 
-    /// daily_staking_reward = (total_staking_reward - already_rewarded) / (total_days - current_day_index) / 2
     pub fn daily_staking_reward(&self) -> Result<u64> {
         let current_day = utils::current_day()?;
 
-        let remaining_days = self.end_day.checked_sub(current_day).unwrap();
         let remaining_reward_tokens = self
             .reward_tokens_amount
             .checked_sub(self.total_rewarded_amount)
             .unwrap();
 
-        Ok(remaining_reward_tokens
-            .checked_div(remaining_days.checked_mul(2).unwrap())
-            .unwrap())
+        Ok(utils::calculate_daily_staking_reward(
+            current_day,
+            self.end_day,
+            remaining_reward_tokens,
+        ))
     }
 
     pub fn day_index(&self) -> Result<u64> {
@@ -100,6 +100,7 @@ impl<'info> GetLazyVector<'info, u64> for Account<'info, StakingInfo> {
 pub struct UserInfo {
     pub user: Pubkey,
     pub staking_info: Pubkey,
+    pub bump: u8,
 
     pub start_day: Option<u64>,
     pub staked_amount: u64,
@@ -112,10 +113,17 @@ pub struct UserInfo {
 }
 
 impl UserInfo {
-    pub const LEN: usize = DESCRIMINATOR_LEN + 32 + 32 + 1 + 8 + 8 + 8 + 8 + 8 + 8;
+    pub const LEN: usize = DESCRIMINATOR_LEN + 32 + 32 + 1 + 1 + 8 + 8 + 8 + 8 + 8 + 8;
 
     pub fn has_active_stake(&self) -> bool {
         self.start_day.is_some()
+    }
+
+    pub fn has_ended_stake(&self) -> Result<bool> {
+        let current_day = utils::current_day()?;
+        self.start_day.map_or(Ok(false), |start_day| {
+            Ok(current_day.checked_sub(start_day).unwrap() >= DAYS_IN_WINDOW)
+        })
     }
 }
 

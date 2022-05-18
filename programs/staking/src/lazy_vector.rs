@@ -79,6 +79,17 @@ where
 
         Ok(())
     }
+
+    pub fn clear(&mut self) {
+        let from = self.offset;
+        let to = self
+            .size
+            .checked_mul(self.elem_size)
+            .and_then(|v| v.checked_add(from))
+            .unwrap();
+
+        self.data.borrow_mut()[from..to].fill(0);
+    }
 }
 
 #[cfg(test)]
@@ -96,9 +107,7 @@ mod tests {
 
                 let mut rng = thread_rng();
 
-                let vec = (0..VECTOR_SIZE)
-                    .map(|_| rng.gen_range(0..$x::MAX))
-                    .collect::<Vec<_>>();
+                let vec = (0..VECTOR_SIZE).map(|_| rng.gen()).collect::<Vec<$x>>();
 
                 let mut buffer = [0; VECTOR_SIZE * ELEM_SIZE];
                 let data = Rc::new(RefCell::new(buffer.as_mut()));
@@ -120,14 +129,14 @@ mod tests {
                 for (index, item) in vec.iter().enumerate() {
                     let from = index * ELEM_SIZE;
                     let to = from + ELEM_SIZE;
-                    let value = $x::from_le_bytes(buffer[from..to].try_into().unwrap());
-
+                    let value = $x::deserialize(&mut &buffer[from..to]).unwrap();
                     assert_eq!(*item, value)
                 }
             }
         };
     }
 
+    test_lazy_vector!(bool, lazy_vector_bool);
     test_lazy_vector!(u8, lazy_vector_u8);
     test_lazy_vector!(u16, lazy_vector_u16);
     test_lazy_vector!(u32, lazy_vector_u32);
@@ -168,5 +177,31 @@ mod tests {
 
             assert_eq!(*item, value)
         }
+    }
+
+    #[test]
+    fn clear() {
+        let mut vector = vec![0, 1, 2, 3, 4, 5];
+        let buffer: &mut [u8] = &mut vector;
+        let data = Rc::new(RefCell::new(buffer));
+
+        let mut lazy_vector = LazyVector::<u8>::new(2, 3, 1, data).unwrap();
+        assert_eq!(lazy_vector.get(0).unwrap(), 2);
+        assert_eq!(lazy_vector.get(1).unwrap(), 3);
+        assert_eq!(lazy_vector.get(2).unwrap(), 4);
+        assert!(lazy_vector.get(3).is_err());
+
+        lazy_vector.clear();
+        assert_eq!(lazy_vector.get(0).unwrap(), 0);
+        assert_eq!(lazy_vector.get(1).unwrap(), 0);
+        assert_eq!(lazy_vector.get(2).unwrap(), 0);
+        assert!(lazy_vector.get(3).is_err());
+
+        assert_eq!(vector[0], 0);
+        assert_eq!(vector[1], 1);
+        assert_eq!(vector[2], 0);
+        assert_eq!(vector[3], 0);
+        assert_eq!(vector[4], 0);
+        assert_eq!(vector[5], 5);
     }
 }

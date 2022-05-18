@@ -10,3 +10,9 @@ pub struct Stake {
     pub user: Pubkey,
     pub amount: u64,
 }
+
+#[event]
+pub struct Claim {
+    pub user: Pubkey,
+    pub amount: u64,
+}
