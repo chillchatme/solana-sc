@@ -16,3 +16,8 @@ pub struct Claim {
     pub user: Pubkey,
     pub amount: u64,
 }
+
+#[event]
+pub struct Boost {
+    pub user: Pubkey,
+}

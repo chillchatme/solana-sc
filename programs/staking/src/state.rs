@@ -36,12 +36,17 @@ pub struct StakingInfo {
     pub reward_tokens_amount: u64,
 
     // Statistics
+    pub days_with_new_stake: u64,
+    pub remainings_reward_amount: u64,
+
+    pub total_stakes_number: u64,
+    pub total_boost_amount: u64,
     pub total_staked_amount: u64,
     pub total_rewarded_amount: u64,
 }
 
 impl StakingInfo {
-    pub const LEN: usize = DESCRIMINATOR_LEN + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 8;
+    pub const LEN: usize = DESCRIMINATOR_LEN + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8;
 
     pub fn assert_not_finished(&self) -> Result<()> {
         let current_day = utils::current_day()?;
@@ -59,16 +64,14 @@ impl StakingInfo {
 
     pub fn daily_staking_reward(&self) -> Result<u64> {
         let current_day = utils::current_day()?;
-
-        let remaining_reward_tokens = self
-            .reward_tokens_amount
-            .checked_sub(self.total_rewarded_amount)
-            .unwrap();
+        let total_days = self.total_days();
 
         Ok(utils::calculate_daily_staking_reward(
             current_day,
-            self.end_day,
-            remaining_reward_tokens,
+            self.days_with_new_stake,
+            self.reward_tokens_amount,
+            self.remainings_reward_amount,
+            total_days,
         ))
     }
 
@@ -110,10 +113,11 @@ pub struct UserInfo {
     // Statistics
     pub total_staked_amount: u64,
     pub total_rewarded_amount: u64,
+    pub total_boost_amount: u64,
 }
 
 impl UserInfo {
-    pub const LEN: usize = DESCRIMINATOR_LEN + 32 + 32 + 1 + 1 + 8 + 8 + 8 + 8 + 8 + 8;
+    pub const LEN: usize = DESCRIMINATOR_LEN + 32 + 32 + 1 + 1 + 8 + 8 + 8 + 8 + 8 + 8 + 8;
 
     pub fn has_active_stake(&self) -> bool {
         self.start_day.is_some()

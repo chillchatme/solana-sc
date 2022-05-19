@@ -14,13 +14,20 @@ pub fn current_day() -> Result<u64> {
 
 pub fn calculate_daily_staking_reward(
     current_day: u64,
-    end_day: u64,
-    remaining_reward_tokens: u64,
+    days_with_new_stake: u64,
+    reward_tokens_amount: u64,
+    remainings_reward_amount: u64,
+    total_days: u64,
 ) -> u64 {
-    let calculate_from = current_day.saturating_sub(DAYS_IN_WINDOW);
-    let remaining_days = end_day.checked_sub(calculate_from).unwrap();
-    remaining_reward_tokens
-        .checked_div(remaining_days.checked_mul(2).unwrap())
+    let days_without_stake = current_day.checked_sub(days_with_new_stake).unwrap();
+    let max_stake_days = total_days.checked_sub(days_without_stake).unwrap();
+    let doubled_max_stake_days = u128::from(max_stake_days).checked_mul(2).unwrap();
+
+    u128::from(reward_tokens_amount)
+        .checked_add(remainings_reward_amount.into())
+        .and_then(|v| v.checked_div(doubled_max_stake_days))
+        .unwrap()
+        .try_into()
         .unwrap()
 }
 
@@ -43,14 +50,14 @@ pub fn calculate_total_staking_amount_before(
     Ok(total_staked)
 }
 
-pub fn calculate_user_reward(
+pub fn calculate_user_reward_with_remainings(
     user_staked_amount: u64,
     user_start_day_index: u64,
     user_boosted_days: &LazyVector<bool>,
     staking_amounts: &LazyVector<u64>,
     total_days: u64,
     daily_staking_reward: u64,
-) -> Result<u64> {
+) -> Result<(u64, u64)> {
     let daily_staking_reward = U256::from(daily_staking_reward);
 
     let mut total_staked_at_day_index =
@@ -59,7 +66,8 @@ pub fn calculate_user_reward(
     let last_stake_day = user_start_day_index.checked_add(DAYS_IN_WINDOW).unwrap();
     let to = cmp::min(total_days, last_stake_day);
 
-    let mut rewards = 0u64;
+    let mut reward = 0u64;
+    let mut remainings = 0u64;
     for day_index in user_start_day_index..to {
         let staked_amount = staking_amounts.get(day_index as usize)?;
         total_staked_at_day_index = total_staked_at_day_index
@@ -76,9 +84,11 @@ pub fn calculate_user_reward(
         let boost = user_boosted_days.get(boosted_day_index as usize)?;
         if boost {
             increase = increase.checked_mul(2).unwrap();
+        } else {
+            remainings = remainings.checked_add(increase).unwrap();
         }
 
-        rewards = rewards.checked_add(increase).unwrap();
+        reward = reward.checked_add(increase).unwrap();
 
         let min_window_index_next_day = day_index
             .checked_add(1)
@@ -92,7 +102,7 @@ pub fn calculate_user_reward(
         }
     }
 
-    Ok(rewards)
+    Ok((reward, remainings))
 }
 
 pub fn update_user_reward(
@@ -103,17 +113,17 @@ pub fn update_user_reward(
         return Ok(());
     }
 
+    let total_days = staking_info.total_days();
     let staking_start_day = staking_info.start_day;
     let staking_amounts = staking_info.get_vector()?;
-    let daily_staking_reward = staking_info.daily_staking_reward()?;
-    let total_days = staking_info.total_days();
 
     let user_start_day = user_info.start_day.unwrap();
     let user_staked_amount = user_info.staked_amount;
     let user_start_day_index = user_start_day.checked_sub(staking_start_day).unwrap();
     let user_boosted_days = user_info.get_vector()?;
 
-    let reward = calculate_user_reward(
+    let daily_staking_reward = staking_info.daily_staking_reward()?;
+    let (reward, remainings) = calculate_user_reward_with_remainings(
         user_staked_amount,
         user_start_day_index,
         &user_boosted_days,
@@ -124,6 +134,11 @@ pub fn update_user_reward(
 
     user_info.rewarded_amount = user_info.rewarded_amount.checked_add(reward).unwrap();
     user_info.start_day = None;
+
+    staking_info.remainings_reward_amount = staking_info
+        .remainings_reward_amount
+        .checked_add(remainings)
+        .unwrap();
 
     staking_info.total_rewarded_amount = staking_info
         .total_rewarded_amount

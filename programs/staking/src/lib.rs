@@ -49,22 +49,17 @@ pub mod chill_staking {
         staking_amounts.get(index as usize)
     }
 
+    pub fn view_daily_staking_reward(ctx: Context<ViewStaking>) -> Result<u64> {
+        let staking_info = &ctx.accounts.staking_info;
+        staking_info.daily_staking_reward()
+    }
+
     pub fn view_boosted_days_list(ctx: Context<ViewUser>) -> Result<Vec<bool>> {
         let user_info = &ctx.accounts.user_info;
         let boosted_days = user_info.get_vector()?;
         Ok((0..DAYS_IN_WINDOW)
             .map(|i| boosted_days.get(i as usize).unwrap())
             .collect())
-    }
-
-    pub fn view_next_stake_min_amount(ctx: Context<ViewUser>) -> Result<u64> {
-        let user_info = &ctx.accounts.user_info;
-        let amount = user_info
-            .staked_amount
-            .checked_add(user_info.pending_amount)
-            .unwrap();
-
-        Ok(amount)
     }
 
     // Methods
@@ -192,6 +187,13 @@ pub mod chill_staking {
             .unwrap();
 
         staking_amounts.set(day_index, &new_amount)?;
+
+        if previous_amount == 0 {
+            staking_info.days_with_new_stake =
+                staking_info.days_with_new_stake.checked_add(1).unwrap();
+        }
+
+        staking_info.total_stakes_number = staking_info.total_stakes_number.checked_add(1).unwrap();
         staking_info.total_staked_amount = staking_info
             .total_staked_amount
             .checked_add(user_info.staked_amount)
@@ -240,6 +242,33 @@ pub mod chill_staking {
         emit!(event::Claim {
             user: ctx.accounts.user.key(),
             amount
+        });
+
+        Ok(())
+    }
+
+    pub fn boost(ctx: Context<Boost>) -> Result<()> {
+        let user_info = &mut ctx.accounts.user_info;
+        let staking_info = &mut ctx.accounts.staking_info;
+
+        utils::update_user_reward(user_info, staking_info)?;
+
+        require!(user_info.has_active_stake(), ErrorCode::NoActiveStake);
+
+        let mut boosted_days = user_info.get_vector()?;
+        let current_day = utils::current_day()?;
+        let index = current_day
+            .checked_sub(user_info.start_day.unwrap())
+            .unwrap() as usize;
+
+        require_eq!(boosted_days.get(index)?, false, ErrorCode::AlreadyBoosted);
+        boosted_days.set(index, &true)?;
+
+        user_info.total_boost_amount = user_info.total_boost_amount.checked_add(1).unwrap();
+        staking_info.total_boost_amount = staking_info.total_boost_amount.checked_add(1).unwrap();
+
+        emit!(event::Boost {
+            user: ctx.accounts.user.key()
         });
 
         Ok(())

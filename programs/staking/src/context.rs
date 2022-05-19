@@ -134,3 +134,14 @@ pub struct Claim<'info> {
 
     pub token_program: Program<'info, Token>,
 }
+
+#[derive(Accounts)]
+pub struct Boost<'info> {
+    pub user: Signer<'info>,
+
+    #[account(mut, seeds = [staking_info.key().as_ref(), user.key().as_ref()], bump = user_info.bump)]
+    pub user_info: Account<'info, UserInfo>,
+
+    #[account(mut)]
+    pub staking_info: Account<'info, StakingInfo>,
+}

@@ -11,6 +11,12 @@ pub enum ErrorCode {
     #[msg("Max vector size has been reached")]
     MaxSizeReached,
 
+    #[msg("Already boosted today")]
+    AlreadyBoosted,
+
+    #[msg("User doesn't have active stake")]
+    NoActiveStake,
+
     #[msg("Staking is finished")]
     StakingIsFinished,
 
