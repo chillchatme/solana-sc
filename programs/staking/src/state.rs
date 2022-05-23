@@ -3,6 +3,7 @@ use crate::{
     utils, StakingErrorCode,
 };
 use anchor_lang::prelude::*;
+use std::cmp;
 
 pub const DESCRIMINATOR_LEN: usize = 8;
 pub const VECTOR_SIZE_LEN: usize = 4;
@@ -77,7 +78,7 @@ impl StakingInfo {
     pub fn daily_staking_reward(&mut self) -> Result<u64> {
         let current_day = utils::current_day()?;
 
-        if self.last_update_day != current_day {
+        if self.last_update_day != current_day && self.last_update_day < self.end_day {
             let day_index = self.day_index()?;
             let total_days = self.total_days();
 
@@ -109,6 +110,11 @@ impl StakingInfo {
     pub fn total_days(&self) -> u64 {
         self.end_day.checked_sub(self.start_day).unwrap()
     }
+
+    pub fn is_finished(&self) -> Result<bool> {
+        let current_day = utils::current_day()?;
+        Ok(self.end_day >= current_day)
+    }
 }
 
 impl<'info> GetLazyVector<'info, u64> for Account<'info, StakingInfo> {
@@ -135,6 +141,7 @@ pub struct UserInfo {
     pub staked_amount: u64,
     pub pending_amount: u64,
     pub rewarded_amount: u64,
+    pub daily_staking_reward: u64,
 
     // Statistics
     pub total_staked_amount: u64,
@@ -143,16 +150,21 @@ pub struct UserInfo {
 }
 
 impl UserInfo {
-    pub const LEN: usize = DESCRIMINATOR_LEN + 32 + 32 + 1 + 1 + 8 + 8 + 8 + 8 + 8 + 8 + 8;
+    pub const LEN: usize = DESCRIMINATOR_LEN + 32 + 32 + 1 + 1 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8;
 
     pub fn has_active_stake(&self) -> bool {
         self.start_day.is_some()
     }
 
-    pub fn has_ended_stake(&self) -> Result<bool> {
-        let current_day = utils::current_day()?;
+    pub fn has_ended_stake(&self, staking_end_day: u64) -> Result<bool> {
         self.start_day.map_or(Ok(false), |start_day| {
-            Ok(current_day.checked_sub(start_day).unwrap() >= DAYS_IN_WINDOW)
+            let current_day = utils::current_day()?;
+            let user_staking_end = cmp::min(
+                start_day.checked_add(DAYS_IN_WINDOW).unwrap(),
+                staking_end_day,
+            );
+
+            Ok(current_day >= user_staking_end)
         })
     }
 }

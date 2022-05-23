@@ -50,6 +50,7 @@ pub fn calculate_daily_staking_reward(
     reward_tokens_amount: u64,
 ) -> (u64, u64) {
     let remaining_days = total_days.checked_sub(day_index).unwrap();
+
     let max_daily_reward = reward_tokens_amount.checked_div(total_days).unwrap();
     let max_rewarded = U256::from(max_daily_reward)
         .checked_mul(day_index.into())
@@ -62,6 +63,7 @@ pub fn calculate_daily_staking_reward(
     let days_without_stake = day_index.checked_sub(days_with_stake).unwrap();
     let free_amount = U256::from(days_without_stake)
         .checked_mul(max_daily_reward.into())
+        .and_then(|v| v.checked_div(U256::new(2)))
         .and_then(|v| v.checked_add(unspent_boosted_reward.into()))
         .and_then(|v| v.checked_sub(total_rewarded_free_amount.into()))
         .unwrap();
@@ -158,7 +160,9 @@ pub fn update_user_reward(
     user_info: &mut Account<UserInfo>,
     staking_info: &mut Account<StakingInfo>,
 ) -> Result<()> {
-    if !user_info.has_ended_stake()? {
+    let user_has_ended_stake = user_info.has_ended_stake(staking_info.end_day)?;
+
+    if !user_has_ended_stake {
         return Ok(());
     }
 
@@ -168,10 +172,10 @@ pub fn update_user_reward(
 
     let user_start_day = user_info.start_day.unwrap();
     let user_staked_amount = user_info.staked_amount;
+    let daily_staking_reward = user_info.daily_staking_reward;
     let user_start_day_index = user_start_day.checked_sub(staking_start_day).unwrap();
     let user_boosted_days = user_info.get_vector()?;
 
-    let daily_staking_reward = staking_info.daily_staking_reward()?;
     let (reward, unspent_rewards) = calculate_user_reward_with_unsent_rewards(
         user_staked_amount,
         user_start_day_index,
@@ -215,11 +219,13 @@ mod tests {
             let (daily_reward, _) =
                 calculate_daily_staking_reward(i, i, total_days, 0, 0, reward_tokens_amount);
 
+            println!("{}", daily_reward);
+
             assert_eq!(daily_reward, 500_000);
         }
 
         // 1 day without stake
-        // 100_000_000 / 99 / 2 = 505050
+        // 99_500_000 / 99 / 2 = 502525
         let mut total_rewarded_free_amount = 0;
         for i in 1..total_days {
             let (daily_reward, rewarded_free_amount) = calculate_daily_staking_reward(
@@ -232,11 +238,11 @@ mod tests {
             );
 
             total_rewarded_free_amount += rewarded_free_amount;
-            assert_eq!(daily_reward / 10, 50505);
+            assert_eq!(daily_reward / 10, 50252);
         }
 
         // 2 days without stake
-        // 100_000_000 / 98 / 2 = 510204
+        // 99_000_000 / 98 / 2 = 505102
         let mut total_rewarded_free_amount = 0;
         for i in 2..total_days {
             let (daily_reward, rewarded_free_amount) = calculate_daily_staking_reward(
@@ -249,11 +255,11 @@ mod tests {
             );
 
             total_rewarded_free_amount += rewarded_free_amount;
-            assert_eq!(51020, daily_reward / 10);
+            assert_eq!(50510, daily_reward / 10);
         }
 
         // 10 days without stake
-        // 100_000_000 / 90 / 2 = 555555
+        // 95_000_000 / 90 / 2 = 527777
         let mut total_rewarded_free_amount = 0;
         for i in 10..total_days {
             let (daily_reward, rewarded_free_amount) = calculate_daily_staking_reward(
@@ -266,7 +272,7 @@ mod tests {
             );
 
             total_rewarded_free_amount += rewarded_free_amount;
-            assert_eq!(55555, daily_reward / 10);
+            assert_eq!(52777, daily_reward / 10);
         }
 
         // 1 day without boost
@@ -301,6 +307,24 @@ mod tests {
 
             total_rewarded_free_amount += rewarded_free_amount;
             assert_eq!(50510, daily_reward / 10);
+        }
+
+        // 1 day without stake
+        // 2 days without boost
+        // 99_500_000 / 98 / 2 = 507653
+        let mut total_rewarded_free_amount = 0;
+        for i in 2..total_days {
+            let (daily_reward, rewarded_free_amount) = calculate_daily_staking_reward(
+                i,
+                i - 1,
+                total_days,
+                1_000_000,
+                total_rewarded_free_amount,
+                reward_tokens_amount,
+            );
+
+            total_rewarded_free_amount += rewarded_free_amount;
+            assert_eq!(50765, daily_reward / 10);
         }
     }
 
