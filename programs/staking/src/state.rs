@@ -1,7 +1,6 @@
 use crate::{
-    error::ErrorCode,
     lazy_vector::{GetLazyVector, LazyVector},
-    utils,
+    utils, StakingErrorCode,
 };
 use anchor_lang::prelude::*;
 
@@ -35,10 +34,14 @@ pub struct StakingInfo {
 
     pub reward_tokens_amount: u64,
 
-    // Statistics
+    // Daily reward
+    pub last_daily_reward: u64,
+    pub last_update_day: u64,
     pub days_with_new_stake: u64,
-    pub remainings_reward_amount: u64,
+    pub unspent_boosted_rewards: u64,
+    pub rewarded_free_amount: u64,
 
+    // Statistics
     pub total_stakes_number: u64,
     pub total_boost_amount: u64,
     pub total_staked_amount: u64,
@@ -46,38 +49,61 @@ pub struct StakingInfo {
 }
 
 impl StakingInfo {
-    pub const LEN: usize = DESCRIMINATOR_LEN + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8;
+    pub const LEN: usize =
+        DESCRIMINATOR_LEN + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8;
 
     pub fn assert_not_finished(&self) -> Result<()> {
         let current_day = utils::current_day()?;
-        require_gt!(self.end_day, current_day, ErrorCode::StakingIsFinished);
+        require_gt!(
+            self.end_day,
+            current_day,
+            StakingErrorCode::StakingIsFinished
+        );
 
         Ok(())
     }
 
     pub fn assert_finished(&self) -> Result<()> {
         let current_day = utils::current_day()?;
-        require_gte!(current_day, self.end_day, ErrorCode::StakingIsNotFinished);
+        require_gte!(
+            current_day,
+            self.end_day,
+            StakingErrorCode::StakingIsNotFinished
+        );
 
         Ok(())
     }
 
-    pub fn daily_staking_reward(&self) -> Result<u64> {
+    pub fn daily_staking_reward(&mut self) -> Result<u64> {
         let current_day = utils::current_day()?;
-        let total_days = self.total_days();
 
-        Ok(utils::calculate_daily_staking_reward(
-            current_day,
-            self.days_with_new_stake,
-            self.reward_tokens_amount,
-            self.remainings_reward_amount,
-            total_days,
-        ))
+        if self.last_update_day != current_day {
+            let day_index = self.day_index()?;
+            let total_days = self.total_days();
+
+            self.last_update_day = current_day;
+
+            let (new_daily_reward, free_amount) = utils::calculate_daily_staking_reward(
+                day_index,
+                self.days_with_new_stake,
+                total_days,
+                self.unspent_boosted_rewards,
+                self.rewarded_free_amount,
+                self.reward_tokens_amount,
+            );
+
+            self.rewarded_free_amount = self.rewarded_free_amount.checked_add(free_amount).unwrap();
+            self.last_daily_reward = new_daily_reward;
+        }
+
+        Ok(self.last_daily_reward)
     }
 
     pub fn day_index(&self) -> Result<u64> {
         let current_day = utils::current_day()?;
-        Ok(current_day.checked_sub(self.start_day).unwrap())
+        current_day
+            .checked_sub(self.start_day)
+            .ok_or_else(|| StakingErrorCode::StakingIsNotStarted.into())
     }
 
     pub fn total_days(&self) -> u64 {

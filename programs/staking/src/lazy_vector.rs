@@ -1,4 +1,4 @@
-use crate::error::ErrorCode;
+use crate::StakingErrorCode;
 use anchor_lang::prelude::*;
 use std::{cell::RefCell, marker::PhantomData, rc::Rc};
 
@@ -31,7 +31,7 @@ where
             .and_then(|v| v.checked_div(elem_size))
             .unwrap();
 
-        require_gte!(free_space, size, ErrorCode::WrongVectorSize);
+        require_gte!(free_space, size, StakingErrorCode::WrongVectorSize);
 
         Ok(LazyVector {
             offset,
@@ -48,7 +48,7 @@ where
     }
 
     pub fn get(&self, index: usize) -> Result<T> {
-        require_gt!(self.size, index, ErrorCode::OutOfBounds);
+        require_gt!(self.size, index, StakingErrorCode::OutOfBounds);
         let from = index
             .checked_mul(self.elem_size)
             .and_then(|v| v.checked_add(self.offset))
@@ -62,7 +62,7 @@ where
     }
 
     pub fn set(&mut self, index: usize, value: &T) -> Result<()> {
-        require_gt!(self.size, index, ErrorCode::OutOfBounds);
+        require_gt!(self.size, index, StakingErrorCode::OutOfBounds);
 
         let from = index
             .checked_mul(self.elem_size)

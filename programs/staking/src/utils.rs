@@ -1,10 +1,39 @@
 use crate::{
     lazy_vector::{GetLazyVector, LazyVector},
-    state::{StakingInfo, UserInfo, DAYS_IN_WINDOW, SEC_PER_DAY},
+    state::{StakingInfo, StakingTokenAuthority, UserInfo, DAYS_IN_WINDOW, SEC_PER_DAY},
 };
 use anchor_lang::prelude::*;
+use anchor_spl::token::{self, Token, TokenAccount};
 use ethnum::U256;
 use std::cmp;
+
+pub fn transfer_tokens<'info>(
+    amount: u64,
+    staking_info: &Account<'info, StakingInfo>,
+    staking_token_authority: &Account<'info, StakingTokenAuthority>,
+    staking_token_account: &Account<'info, TokenAccount>,
+    recipient_token_account: &Account<'info, TokenAccount>,
+    token_program: &Program<'info, Token>,
+) -> Result<()> {
+    let staking_info_pubkey = staking_info.key();
+    let signers = &[
+        staking_info_pubkey.as_ref(),
+        &[staking_token_authority.bump],
+    ];
+    let signers = &[signers.as_ref()];
+
+    let cpi_context = CpiContext::new_with_signer(
+        token_program.to_account_info(),
+        token::Transfer {
+            from: staking_token_account.to_account_info(),
+            to: recipient_token_account.to_account_info(),
+            authority: staking_token_authority.to_account_info(),
+        },
+        signers,
+    );
+
+    token::transfer(cpi_context, amount)
+}
 
 pub fn current_day() -> Result<u64> {
     let clock = Clock::get()?;
@@ -13,22 +42,42 @@ pub fn current_day() -> Result<u64> {
 }
 
 pub fn calculate_daily_staking_reward(
-    current_day: u64,
-    days_with_new_stake: u64,
-    reward_tokens_amount: u64,
-    remainings_reward_amount: u64,
+    day_index: u64,
+    days_with_stake: u64,
     total_days: u64,
-) -> u64 {
-    let days_without_stake = current_day.checked_sub(days_with_new_stake).unwrap();
-    let max_stake_days = total_days.checked_sub(days_without_stake).unwrap();
-    let doubled_max_stake_days = u128::from(max_stake_days).checked_mul(2).unwrap();
+    unspent_boosted_reward: u64,
+    total_rewarded_free_amount: u64,
+    reward_tokens_amount: u64,
+) -> (u64, u64) {
+    let remaining_days = total_days.checked_sub(day_index).unwrap();
+    let max_daily_reward = reward_tokens_amount.checked_div(total_days).unwrap();
+    let max_rewarded = U256::from(max_daily_reward)
+        .checked_mul(day_index.into())
+        .unwrap();
 
-    u128::from(reward_tokens_amount)
-        .checked_add(remainings_reward_amount.into())
-        .and_then(|v| v.checked_div(doubled_max_stake_days))
+    let denomenator = U256::from(remaining_days)
+        .checked_mul(U256::new(2))
+        .unwrap();
+
+    let days_without_stake = day_index.checked_sub(days_with_stake).unwrap();
+    let free_amount = U256::from(days_without_stake)
+        .checked_mul(max_daily_reward.into())
+        .and_then(|v| v.checked_add(unspent_boosted_reward.into()))
+        .and_then(|v| v.checked_sub(total_rewarded_free_amount.into()))
+        .unwrap();
+
+    let numerator = U256::from(reward_tokens_amount)
+        .checked_add(free_amount)
+        .and_then(|v| v.checked_sub(max_rewarded))
+        .unwrap();
+
+    let daily_reward = numerator.checked_div(denomenator).unwrap().as_u64();
+    let rewarded_free_amount = free_amount
+        .checked_div(remaining_days.into())
         .unwrap()
-        .try_into()
-        .unwrap()
+        .as_u64();
+
+    (daily_reward, rewarded_free_amount)
 }
 
 pub fn calculate_total_staking_amount_before(
@@ -50,7 +99,7 @@ pub fn calculate_total_staking_amount_before(
     Ok(total_staked)
 }
 
-pub fn calculate_user_reward_with_remainings(
+pub fn calculate_user_reward_with_unsent_rewards(
     user_staked_amount: u64,
     user_start_day_index: u64,
     user_boosted_days: &LazyVector<bool>,
@@ -123,7 +172,7 @@ pub fn update_user_reward(
     let user_boosted_days = user_info.get_vector()?;
 
     let daily_staking_reward = staking_info.daily_staking_reward()?;
-    let (reward, remainings) = calculate_user_reward_with_remainings(
+    let (reward, unspent_rewards) = calculate_user_reward_with_unsent_rewards(
         user_staked_amount,
         user_start_day_index,
         &user_boosted_days,
@@ -132,12 +181,13 @@ pub fn update_user_reward(
         daily_staking_reward,
     )?;
 
-    user_info.rewarded_amount = user_info.rewarded_amount.checked_add(reward).unwrap();
     user_info.start_day = None;
+    user_info.rewarded_amount = user_info.rewarded_amount.checked_add(reward).unwrap();
+    user_info.total_rewarded_amount = user_info.total_rewarded_amount.checked_add(reward).unwrap();
 
-    staking_info.remainings_reward_amount = staking_info
-        .remainings_reward_amount
-        .checked_add(remainings)
+    staking_info.unspent_boosted_rewards = staking_info
+        .unspent_boosted_rewards
+        .checked_add(unspent_rewards)
         .unwrap();
 
     staking_info.total_rewarded_amount = staking_info
@@ -146,4 +196,320 @@ pub fn update_user_reward(
         .unwrap();
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{cell::RefCell, rc::Rc};
+
+    #[test]
+    fn daily_staking_reward() {
+        let start_day = 500;
+        let end_day = start_day + 100;
+        let total_days = end_day - start_day;
+
+        let reward_tokens_amount = 100_000_000;
+
+        for i in 0..total_days {
+            let (daily_reward, _) =
+                calculate_daily_staking_reward(i, i, total_days, 0, 0, reward_tokens_amount);
+
+            assert_eq!(daily_reward, 500_000);
+        }
+
+        // 1 day without stake
+        // 100_000_000 / 99 / 2 = 505050
+        let mut total_rewarded_free_amount = 0;
+        for i in 1..total_days {
+            let (daily_reward, rewarded_free_amount) = calculate_daily_staking_reward(
+                i,
+                i - 1,
+                total_days,
+                0,
+                total_rewarded_free_amount,
+                reward_tokens_amount,
+            );
+
+            total_rewarded_free_amount += rewarded_free_amount;
+            assert_eq!(daily_reward / 10, 50505);
+        }
+
+        // 2 days without stake
+        // 100_000_000 / 98 / 2 = 510204
+        let mut total_rewarded_free_amount = 0;
+        for i in 2..total_days {
+            let (daily_reward, rewarded_free_amount) = calculate_daily_staking_reward(
+                i,
+                i - 2,
+                total_days,
+                0,
+                total_rewarded_free_amount,
+                reward_tokens_amount,
+            );
+
+            total_rewarded_free_amount += rewarded_free_amount;
+            assert_eq!(51020, daily_reward / 10);
+        }
+
+        // 10 days without stake
+        // 100_000_000 / 90 / 2 = 555555
+        let mut total_rewarded_free_amount = 0;
+        for i in 10..total_days {
+            let (daily_reward, rewarded_free_amount) = calculate_daily_staking_reward(
+                i,
+                i - 10,
+                total_days,
+                0,
+                total_rewarded_free_amount,
+                reward_tokens_amount,
+            );
+
+            total_rewarded_free_amount += rewarded_free_amount;
+            assert_eq!(55555, daily_reward / 10);
+        }
+
+        // 1 day without boost
+        // 99_500_000 / 99 / 2 = 502525
+        let mut total_rewarded_free_amount = 0;
+        for i in 1..total_days {
+            let (daily_reward, rewarded_free_amount) = calculate_daily_staking_reward(
+                i,
+                i,
+                total_days,
+                500_000,
+                total_rewarded_free_amount,
+                reward_tokens_amount,
+            );
+
+            total_rewarded_free_amount += rewarded_free_amount;
+            assert_eq!(50252, daily_reward / 10);
+        }
+
+        // 2 days without boost
+        // 99_000_000 / 98 / 2 = 505102
+        let mut total_rewarded_free_amount = 0;
+        for i in 2..total_days {
+            let (daily_reward, rewarded_free_amount) = calculate_daily_staking_reward(
+                i,
+                i,
+                total_days,
+                1_000_000,
+                total_rewarded_free_amount,
+                reward_tokens_amount,
+            );
+
+            total_rewarded_free_amount += rewarded_free_amount;
+            assert_eq!(50510, daily_reward / 10);
+        }
+    }
+
+    #[test]
+    fn total_staking_amount_before() {
+        let mut staking_amounts_buffer = [0u8; 144];
+        let staking_amounts_data = Rc::new(RefCell::new(staking_amounts_buffer.as_mut()));
+        let mut staking_amounts = LazyVector::new(0, 18, 8, staking_amounts_data).unwrap();
+
+        staking_amounts.set(0, &1000).unwrap();
+        staking_amounts.set(2, &2000).unwrap();
+        staking_amounts.set(4, &2500).unwrap();
+        staking_amounts.set(7, &2000).unwrap();
+        staking_amounts.set(9, &5000).unwrap();
+        staking_amounts.set(10, &200).unwrap();
+
+        // Day, Staked, Staked during last 6 days
+        //  0   1000    0
+        //  1   0       1000
+        //  2   2000    1000
+        //  3   0       3000
+        //  4   2500    3000
+        //  5   0       5500
+        //  6   0       5500
+        //  7   2000    5500 - 1000 = 4500
+        //  8   0       6500 - 0 = 6500
+        //  9   5000    6500 - 2000 = 4500
+        // 10   200     9500 - 0 = 9500
+        // 11   0       9700 - 2500 = 7200
+        // 12   0       7200 - 0 = 7200
+        // 13   0       7200 - 0 = 7200
+        // 14   0       7200 - 2000 = 5200
+        // 15   0       5200 - 0 = 5200
+        // 16   0       5200 - 5000 = 200
+        // 17   0       200 - 200 = 0
+        // 18   0       0 - 0 = 0
+
+        let expected_values = vec![
+            0, 1000, 1000, 3000, 3000, 5500, 5500, 4500, 6500, 4500, 9500, 7200, 7200, 7200, 5200,
+            5200, 200, 0, 0,
+        ];
+
+        for (index, expected_value) in expected_values.iter().enumerate() {
+            let actual_value =
+                calculate_total_staking_amount_before(index as u64, &staking_amounts).unwrap();
+
+            assert_eq!(actual_value, *expected_value, "Index: {}", index);
+        }
+    }
+
+    #[test]
+    fn user_reward() {
+        let total_days = 12;
+        let daily_staking_reward = 100;
+
+        let mut staking_amounts_buffer = [0u8; 96];
+        let staking_amounts_data = Rc::new(RefCell::new(staking_amounts_buffer.as_mut()));
+        let mut staking_amounts = LazyVector::new(0, 12, 8, staking_amounts_data).unwrap();
+
+        // User 1 staked 500 tokens in day 0
+        staking_amounts.set(0, &500).unwrap();
+
+        // User 2 staked 1500 tokens in day 2
+        // User 3 staked 500 tokens in day 2
+        staking_amounts.set(2, &2000).unwrap();
+
+        // User 4 staked 2500 tokens in day 4
+        staking_amounts.set(4, &2500).unwrap();
+
+        // User 5 staked 1000 tokens in day 8
+        staking_amounts.set(8, &1000).unwrap();
+
+        let mut boosted_days_buffer = [0u8; 7];
+        let boosted_days_data = Rc::new(RefCell::new(boosted_days_buffer.as_mut()));
+        let mut boosted_days = LazyVector::new(0, 7, 1, boosted_days_data).unwrap();
+
+        boosted_days.set(0, &true).unwrap();
+        boosted_days.set(1, &true).unwrap();
+        boosted_days.set(3, &true).unwrap();
+        boosted_days.set(4, &true).unwrap();
+        boosted_days.set(6, &true).unwrap();
+
+        // User 1
+        // 0: 500 / (0 + 500) * 100 * 2 = 200
+        // 1: 500 / 500 * 100 * 2 = 200
+        // 2: 500 / (500 + 2000) * 100 = 20
+        // 3: 500 / 2500 * 100 * 2 = 40
+        // 4: 500 / (2500 + 2500) * 100 * 2 = 20
+        // 5: 500 / 5000 * 100 = 10
+        // 6: 500 / 5000 * 100 * 2 = 20
+        // Total: 510
+
+        // Remainings = 20 + 10 = 30
+
+        let (reward, remainings) = calculate_user_reward_with_unsent_rewards(
+            500,
+            0,
+            &boosted_days,
+            &staking_amounts,
+            total_days,
+            daily_staking_reward,
+        )
+        .unwrap();
+
+        assert_eq!(reward, 510);
+        assert_eq!(remainings, 30);
+
+        boosted_days.clear();
+
+        // User 2
+        // 2: 1500 / 2500 * 100 = 60
+        // 3: 1500 / 2500 * 100 = 60
+        // 4: 1500 / 5000 * 100 = 30
+        // 5: 1500 / 5000 * 100 = 30
+        // 6: 1500 / 5000 * 100 = 30
+        // 7: 1500 / 4500 * 100 = 33
+        // 8: 1500 / 5500 * 100 = 27
+        // Total: 270
+
+        let (reward, remainings) = calculate_user_reward_with_unsent_rewards(
+            1500,
+            2,
+            &boosted_days,
+            &staking_amounts,
+            total_days,
+            daily_staking_reward,
+        )
+        .unwrap();
+
+        assert_eq!(reward, 270);
+        assert_eq!(remainings, 270);
+
+        // User 3
+        // 2: 500 / 2500 * 100 = 20
+        // 3: 500 / 2500 * 100 = 20
+        // 4: 500 / 5000 * 100 = 10
+        // 5: 500 / 5000 * 100 = 10
+        // 6: 500 / 5000 * 100 = 10
+        // 7: 500 / 4500 * 100 = 11
+        // 8: 500 / 5500 * 100 = 9
+        // Total: 90
+
+        let (reward, remainings) = calculate_user_reward_with_unsent_rewards(
+            500,
+            2,
+            &boosted_days,
+            &staking_amounts,
+            total_days,
+            daily_staking_reward,
+        )
+        .unwrap();
+
+        assert_eq!(reward, 90);
+        assert_eq!(remainings, 90);
+
+        // User 4
+        // 4: 2500 / 5000 * 100 = 50
+        // 5: 2500 / 5000 * 100 = 50
+        // 6: 2500 / 5000 * 100 = 50
+        // 7: 2500 / 4500 * 100 = 55
+        // 8: 2500 / 5500 * 100 = 45
+        // 9: 2500 / 3500 * 100 = 71
+        // 10: 2500 / 3500 * 100 = 71
+        // Total: 392
+
+        let (reward, remainings) = calculate_user_reward_with_unsent_rewards(
+            2500,
+            4,
+            &boosted_days,
+            &staking_amounts,
+            total_days,
+            daily_staking_reward,
+        )
+        .unwrap();
+
+        assert_eq!(reward, 392);
+        assert_eq!(remainings, 392);
+
+        // User 5
+        // 8: 1000 / 5500 * 100 = 18
+        // 9: 1000 / 3500 * 100 = 28
+        // 10: 1000 / 3500 * 100 = 28
+        // 11: 1000 / 1000 * 100 = 100
+        // Total: 174
+
+        let (reward, remainings) = calculate_user_reward_with_unsent_rewards(
+            1000,
+            8,
+            &boosted_days,
+            &staking_amounts,
+            total_days,
+            daily_staking_reward,
+        )
+        .unwrap();
+
+        assert_eq!(reward, 174);
+        assert_eq!(remainings, 174);
+
+        // Reward after staking period
+        let (reward, remainings) = calculate_user_reward_with_unsent_rewards(
+            1000,
+            12,
+            &boosted_days,
+            &staking_amounts,
+            total_days,
+            daily_staking_reward,
+        )
+        .unwrap();
+        assert_eq!(reward, 0);
+        assert_eq!(remainings, 0);
+    }
 }

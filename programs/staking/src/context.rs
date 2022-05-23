@@ -38,6 +38,30 @@ pub struct Initialize<'info> {
 }
 
 #[derive(Accounts)]
+pub struct CloseStakingInfo<'info> {
+    pub primary_wallet: Signer<'info>,
+
+    #[account(mut, has_one = primary_wallet, close = recipient)]
+    pub staking_info: Account<'info, StakingInfo>,
+
+    /// CHECK: recipient
+    #[account(mut)]
+    pub recipient: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct CloseUserInfo<'info> {
+    pub user: Signer<'info>,
+
+    #[account(mut, has_one = user, close = recipient)]
+    pub user_info: Account<'info, UserInfo>,
+
+    /// CHECK: recipient
+    #[account(mut)]
+    pub recipient: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
 pub struct AddRewardTokens<'info> {
     pub primary_wallet: Signer<'info>,
 
@@ -78,6 +102,9 @@ pub struct RedeemRemainingRewardTokens<'info> {
 }
 
 #[derive(Accounts)]
+pub struct ViewState {}
+
+#[derive(Accounts)]
 pub struct ViewStaking<'info> {
     pub staking_info: Account<'info, StakingInfo>,
 }
@@ -88,11 +115,21 @@ pub struct ViewUser<'info> {
 }
 
 #[derive(Accounts)]
+pub struct ViewUserRewardAmount<'info> {
+    #[account(has_one = staking_info)]
+    pub user_info: Account<'info, UserInfo>,
+
+    pub staking_info: Account<'info, StakingInfo>,
+}
+
+#[derive(Accounts)]
 pub struct Stake<'info> {
-    #[account(mut)]
     pub user: Signer<'info>,
 
-    #[account(init_if_needed, payer = user, space = UserInfo::LEN + DAYS_IN_WINDOW as usize,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(init_if_needed, payer = payer, space = UserInfo::LEN + DAYS_IN_WINDOW as usize,
               seeds = [staking_info.key().as_ref(), user.key().as_ref()], bump)]
     pub user_info: Account<'info, UserInfo>,
 
@@ -114,7 +151,7 @@ pub struct Stake<'info> {
 }
 
 #[derive(Accounts)]
-pub struct Claim<'info> {
+pub struct ClaimAndUnstake<'info> {
     pub user: Signer<'info>,
 
     #[account(mut, seeds = [staking_info.key().as_ref(), user.key().as_ref()], bump = user_info.bump)]
@@ -136,7 +173,7 @@ pub struct Claim<'info> {
 }
 
 #[derive(Accounts)]
-pub struct Boost<'info> {
+pub struct BoostAndTransferReward<'info> {
     pub user: Signer<'info>,
 
     #[account(mut, seeds = [staking_info.key().as_ref(), user.key().as_ref()], bump = user_info.bump)]
