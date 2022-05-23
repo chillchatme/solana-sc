@@ -1,5 +1,9 @@
 import * as anchor from "@project-serum/anchor";
 import { BN } from "@project-serum/anchor";
+import {
+  ASSOCIATED_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+} from "@project-serum/anchor/dist/cjs/utils/token";
 import * as BufferLayout from "@solana/buffer-layout";
 import {
   Keypair,
@@ -12,10 +16,10 @@ import {
 
 export const requestComputeUnitsInstruction = (
   units: number,
-  additionalFee: number,
+  additionalFee: number
 ): TransactionInstruction => {
   const programId = new PublicKey(
-    "ComputeBudget111111111111111111111111111111",
+    "ComputeBudget111111111111111111111111111111"
   );
 
   const layout = BufferLayout.struct<{
@@ -37,68 +41,44 @@ export const requestComputeUnitsInstruction = (
   });
 };
 
-export async function getWalletPubkey(
-  user: PublicKey,
-  primaryWallet: PublicKey,
-  programId: PublicKey,
+export async function getAssociatedTokenAddress(
+  owner: PublicKey,
+  mint: PublicKey
 ): Promise<PublicKey> {
-  return (await PublicKey.findProgramAddress([
-    anchor.utils.bytes.utf8.encode("wallet"),
-    user.toBytes(),
-    primaryWallet.toBytes(),
-  ], programId))[0];
+  return (
+    await PublicKey.findProgramAddress(
+      [owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
+      ASSOCIATED_PROGRAM_ID
+    )
+  )[0];
 }
 
-export async function getNftConfigPubkey(
-  chillMint: PublicKey,
-  programId: PublicKey,
-): Promise<PublicKey> {
-  return (await PublicKey.findProgramAddress([
-    anchor.utils.bytes.utf8.encode("config"),
-    chillMint.toBytes(),
-  ], programId))[0];
-}
-
-export async function getChillMetadataPubkey(
-  nftMint: PublicKey,
-  programId: PublicKey,
-): Promise<PublicKey> {
-  return (await PublicKey.findProgramAddress([
-    anchor.utils.bytes.utf8.encode("chill-metadata"),
-    nftMint.toBytes(),
-  ], programId))[0];
-}
-
-export async function airdrop(
-  address: PublicKey,
-  balance: number,
-) {
-  await anchor.getProvider().connection.confirmTransaction(
-    await anchor.getProvider().connection.requestAirdrop(
-      address,
-      balance,
-    ),
-  );
+export async function airdrop(address: PublicKey, balance: number) {
+  await anchor
+    .getProvider()
+    .connection.confirmTransaction(
+      await anchor.getProvider().connection.requestAirdrop(address, balance)
+    );
 }
 
 export async function transferLamports(
   from: Keypair,
   to: PublicKey,
-  lamports: number,
+  lamports: number
 ): Promise<TransactionSignature> {
   const transaction = new Transaction().add(
     anchor.web3.SystemProgram.transfer({
       fromPubkey: from.publicKey,
       toPubkey: to,
       lamports,
-    }),
+    })
   );
 
   const connection = anchor.getProvider().connection;
   const signature = await anchor.web3.sendAndConfirmTransaction(
     connection,
     transaction,
-    [from],
+    [from]
   );
 
   return signature;
@@ -108,14 +88,18 @@ export async function transferTokens(
   authority: Keypair,
   source: PublicKey,
   destination: PublicKey,
-  amount: number,
+  amount: number
 ): Promise<TransactionSignature> {
   const tokenProgram = anchor.Spl.token();
-  return await tokenProgram.methods.transfer(new BN(amount)).accounts({
-    source,
-    destination,
-    authority: authority.publicKey,
-  }).signers([authority]).rpc();
+  return await tokenProgram.methods
+    .transfer(new BN(amount))
+    .accounts({
+      source,
+      destination,
+      authority: authority.publicKey,
+    })
+    .signers([authority])
+    .rpc();
 }
 
 export async function keypairWithSol(): Promise<Keypair> {
@@ -126,17 +110,16 @@ export async function keypairWithSol(): Promise<Keypair> {
 
 export async function createMint(
   authority: PublicKey,
-  decimals: number,
+  decimals: number
 ): Promise<PublicKey> {
   const mint = Keypair.generate();
   const tokenProgram = anchor.Spl.token();
-  await tokenProgram.methods.initializeMint(decimals, authority, null)
-    .accounts(
-      {
-        mint: mint.publicKey,
-        rent: SYSVAR_RENT_PUBKEY,
-      },
-    )
+  await tokenProgram.methods
+    .initializeMint(decimals, authority, null)
+    .accounts({
+      mint: mint.publicKey,
+      rent: SYSVAR_RENT_PUBKEY,
+    })
     .preInstructions([await tokenProgram.account.mint.createInstruction(mint)])
     .signers([mint])
     .rpc();
@@ -146,17 +129,19 @@ export async function createMint(
 
 export async function createTokenAccount(
   owner: PublicKey,
-  mint: PublicKey,
+  mint: PublicKey
 ): Promise<PublicKey> {
   const tokenAccount = Keypair.generate();
   const tokenProgram = anchor.Spl.token();
 
-  await tokenProgram.methods.initializeAccount().accounts({
-    account: tokenAccount.publicKey,
-    authority: owner,
-    mint,
-    rent: SYSVAR_RENT_PUBKEY,
-  })
+  await tokenProgram.methods
+    .initializeAccount()
+    .accounts({
+      account: tokenAccount.publicKey,
+      authority: owner,
+      mint,
+      rent: SYSVAR_RENT_PUBKEY,
+    })
     .preInstructions([
       await tokenProgram.account.token.createInstruction(tokenAccount),
     ])
@@ -166,9 +151,7 @@ export async function createTokenAccount(
   return tokenAccount.publicKey;
 }
 
-export async function tokenBalance(
-  address: PublicKey,
-): Promise<number> {
+export async function tokenBalance(address: PublicKey): Promise<number> {
   const connection = anchor.getProvider().connection;
   const info = await connection.getTokenAccountBalance(address);
   return parseInt(info.value.amount);
@@ -178,45 +161,20 @@ export async function mintTokens(
   authoirity: Keypair,
   mint: PublicKey,
   tokenAccount: PublicKey,
-  amount: number,
+  amount: number
 ) {
   const tokenProgram = anchor.Spl.token();
 
-  await tokenProgram.methods.mintTo(new BN(amount)).accounts({
-    mint,
-    authority: authoirity.publicKey,
-    to: tokenAccount,
-  })
+  await tokenProgram.methods
+    .mintTo(new BN(amount))
+    .accounts({
+      mint,
+      authority: authoirity.publicKey,
+      to: tokenAccount,
+    })
     .signers([authoirity])
     .rpc();
 }
-
-const nftTypes = [
-  "character",
-  "pet",
-  "emote",
-  "tileset",
-  "item",
-  "world",
-] as const;
-
-export const MAX_RECIPIENTS = 3;
-
-export type Fees = { [K in typeof nftTypes[number]]: BN };
-export type NftType = Pick<keyof Fees, never>;
-
-export type Recipient = {
-  address: PublicKey;
-  mintShare: number;
-  transactionShare: number;
-};
-
-export type NftArgs = {
-  name: string;
-  symbol: string;
-  uri: string;
-  fees: number;
-};
 
 export function randomNumber(max?: number): number {
   if (max == null) {
@@ -225,62 +183,10 @@ export function randomNumber(max?: number): number {
   return Math.floor(Math.random() * (max + 1));
 }
 
-export function randomFees(): Fees {
-  const fees = {};
-  for (const index in nftTypes) {
-    fees[nftTypes[index]] = new BN(randomNumber());
-  }
-  return fees as Fees;
-}
+export async function getCurrentTime(): Promise<number> {
+  const provider = anchor.getProvider();
+  const connection = provider.connection;
 
-export function feesOf(fees: Fees, nftType: NftType): BN {
-  const nftTypeKey = Object.keys(nftType)[0];
-  return fees[nftTypeKey];
-}
-
-export function randomNftType(): NftType {
-  const index = randomNumber(nftTypes.length - 1);
-  const nftType = {};
-  nftType[nftTypes[index]] = {};
-  return nftType;
-}
-
-export function randomRecipients(amount?: number): Recipient[] {
-  if (amount == null) {
-    amount = MAX_RECIPIENTS;
-  }
-
-  const recipients: Recipient[] = [];
-  let mintShare = 100;
-  let transactionShare = 100;
-
-  for (let i = 1; i < amount; i++) {
-    const recipient = {
-      address: Keypair.generate().publicKey,
-      mintShare: randomNumber(mintShare),
-      transactionShare: randomNumber(transactionShare),
-    };
-
-    mintShare -= recipient.mintShare;
-    transactionShare -= recipient.transactionShare;
-    recipients.push(recipient);
-  }
-
-  const lastRecipient = {
-    address: Keypair.generate().publicKey,
-    mintShare,
-    transactionShare,
-  };
-  recipients.push(lastRecipient);
-
-  return recipients;
-}
-
-export function randomNftArgs(): NftArgs {
-  return {
-    name: "NAME_" + randomNumber(1000),
-    symbol: "SYM_" + randomNumber(1000),
-    uri: "https://arweave.org/" + Keypair.generate().publicKey.toString(),
-    fees: randomNumber(10000),
-  };
+  const slot = await connection.getSlot();
+  return await connection.getBlockTime(slot);
 }

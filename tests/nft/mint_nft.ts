@@ -1,7 +1,8 @@
 import * as anchor from "@project-serum/anchor";
-import * as utils from "./utils";
+import * as utils from "../utils";
+import * as nftUtils from "./utils";
 import { AnchorProvider, Program } from "@project-serum/anchor";
-import { ChillNft } from "../target/types/chill_nft";
+import { ChillNft } from "../../target/types/chill_nft";
 import {
   AccountMeta,
   Keypair,
@@ -26,63 +27,74 @@ describe("NFT | Initialize", () => {
   before(async () => {
     payer = await utils.keypairWithSol();
     chillMint = await utils.createMint(primaryWallet.publicKey, 9);
-    config = await utils.getNftConfigPubkey(chillMint, program.programId);
+    config = await nftUtils.getNftConfigPubkey(chillMint, program.programId);
   });
 
   it("Try to initialize with wrong mint authority", async () => {
     const mintAuthority = Keypair.generate();
     const wrongChillMint = await utils.createMint(mintAuthority.publicKey, 9);
-    const wrongConfig = await utils.getNftConfigPubkey(
+    const wrongConfig = await nftUtils.getNftConfigPubkey(
       wrongChillMint,
-      program.programId,
+      program.programId
     );
 
-    const fees = utils.randomFees();
-    const recipients = utils.randomRecipients();
-    await assert.rejects(async () => {
-      await program.methods.initialize(fees, recipients)
-        .accounts({
-          primaryWallet: primaryWallet.publicKey,
-          payer: payer.publicKey,
-          config: wrongConfig,
-          chillMint: wrongChillMint,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([payer])
-        .rpc();
-    }, (err: anchor.AnchorError) => {
-      assert.equal(err.error.errorCode.code, "ConstraintRaw");
-      assert.equal(err.error.origin, "chill_mint");
-      return true;
-    });
+    const fees = nftUtils.randomFees();
+    const recipients = nftUtils.randomRecipients();
+    await assert.rejects(
+      async () => {
+        await program.methods
+          .initialize(fees, recipients)
+          .accounts({
+            primaryWallet: primaryWallet.publicKey,
+            payer: payer.publicKey,
+            config: wrongConfig,
+            chillMint: wrongChillMint,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([payer])
+          .rpc();
+      },
+      (err: anchor.AnchorError) => {
+        assert.equal(err.error.errorCode.code, "ConstraintRaw");
+        assert.equal(err.error.origin, "chill_mint");
+        return true;
+      }
+    );
   });
 
   it("Try to initialize with invalid recipients number", async () => {
-    const fees = utils.randomFees();
-    const recipients = utils.randomRecipients(utils.MAX_RECIPIENTS + 1);
+    const fees = nftUtils.randomFees();
+    const recipients = nftUtils.randomRecipients(nftUtils.MAX_RECIPIENTS + 1);
 
-    await assert.rejects(async () => {
-      await program.methods.initialize(fees, recipients)
-        .accounts({
-          primaryWallet: primaryWallet.publicKey,
-          payer: payer.publicKey,
-          config,
-          chillMint,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([payer])
-        .rpc();
-    }, (err: anchor.AnchorError) => {
-      assert.equal(err.error.errorCode.code, "MaximumRecipientsNumberExceeded");
-      return true;
-    });
+    await assert.rejects(
+      async () => {
+        await program.methods
+          .initialize(fees, recipients)
+          .accounts({
+            primaryWallet: primaryWallet.publicKey,
+            payer: payer.publicKey,
+            config,
+            chillMint,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([payer])
+          .rpc();
+      },
+      (err: anchor.AnchorError) => {
+        assert.equal(
+          err.error.errorCode.code,
+          "MaximumRecipientsNumberExceeded"
+        );
+        return true;
+      }
+    );
   });
 
   it("Try to initialize with invalid recipient shares", async () => {
-    const fees = utils.randomFees();
+    const fees = nftUtils.randomFees();
 
     for (let i = 0; i < 10; i++) {
-      const recipients = utils.randomRecipients(utils.MAX_RECIPIENTS);
+      const recipients = nftUtils.randomRecipients(nftUtils.MAX_RECIPIENTS);
       let totalMintShare = 0;
       let totalTransactionShare = 0;
 
@@ -98,8 +110,37 @@ describe("NFT | Initialize", () => {
         continue;
       }
 
-      await assert.rejects(async () => {
-        await program.methods.initialize(fees, recipients)
+      await assert.rejects(
+        async () => {
+          await program.methods
+            .initialize(fees, recipients)
+            .accounts({
+              primaryWallet: primaryWallet.publicKey,
+              payer: payer.publicKey,
+              config,
+              chillMint,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([payer])
+            .rpc();
+        },
+        (err: anchor.AnchorError) => {
+          assert.equal(err.error.errorCode.code, "InvalidShares");
+          return true;
+        }
+      );
+    }
+  });
+
+  it("Try to initialize with duplicated recipients", async () => {
+    const fees = nftUtils.randomFees();
+    const recipients = nftUtils.randomRecipients();
+    recipients[0] = recipients[nftUtils.MAX_RECIPIENTS - 1];
+
+    assert.rejects(
+      async () => {
+        await program.methods
+          .initialize(fees, recipients)
           .accounts({
             primaryWallet: primaryWallet.publicKey,
             payer: payer.publicKey,
@@ -109,40 +150,20 @@ describe("NFT | Initialize", () => {
           })
           .signers([payer])
           .rpc();
-      }, (err: anchor.AnchorError) => {
-        assert.equal(err.error.errorCode.code, "InvalidShares");
+      },
+      (err: anchor.AnchorError) => {
+        assert.equal(err.error.errorCode.code, "DublicateRecipients");
         return true;
-      });
-    }
-  });
-
-  it("Try to initialize with duplicated recipients", async () => {
-    const fees = utils.randomFees();
-    const recipients = utils.randomRecipients();
-    recipients[0] = recipients[utils.MAX_RECIPIENTS - 1];
-
-    assert.rejects(async () => {
-      await program.methods.initialize(fees, recipients)
-        .accounts({
-          primaryWallet: primaryWallet.publicKey,
-          payer: payer.publicKey,
-          config,
-          chillMint,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([payer])
-        .rpc();
-    }, (err: anchor.AnchorError) => {
-      assert.equal(err.error.errorCode.code, "DublicateRecipients");
-      return true;
-    });
+      }
+    );
   });
 
   it("Initialize", async () => {
-    const fees = utils.randomFees();
-    const recipients = utils.randomRecipients();
+    const fees = nftUtils.randomFees();
+    const recipients = nftUtils.randomRecipients();
 
-    await program.methods.initialize(fees, recipients)
+    await program.methods
+      .initialize(fees, recipients)
       .accounts({
         primaryWallet: primaryWallet.publicKey,
         payer: payer.publicKey,
@@ -157,23 +178,25 @@ describe("NFT | Initialize", () => {
     assert.equal(JSON.stringify(configData.fees), JSON.stringify(fees));
     assert.equal(
       JSON.stringify(configData.recipients),
-      JSON.stringify(recipients),
+      JSON.stringify(recipients)
     );
   });
 
   it("Try to initialize twice", async () => {
-    const fees = utils.randomFees();
-    const recipients = utils.randomRecipients();
+    const fees = nftUtils.randomFees();
+    const recipients = nftUtils.randomRecipients();
 
     await assert.rejects(async () => {
-      await program.methods.initialize(fees, recipients)
+      await program.methods
+        .initialize(fees, recipients)
         .accounts({
           primaryWallet: primaryWallet.publicKey,
           payer: payer.publicKey,
           config,
           chillMint,
           systemProgram: SystemProgram.programId,
-        }).signers([payer])
+        })
+        .signers([payer])
         .rpc();
     });
   });
@@ -194,8 +217,8 @@ describe("NFT | Update", () => {
   let config: PublicKey;
   let chillMint: PublicKey;
 
-  const fees = utils.randomFees();
-  const recipients = utils.randomRecipients();
+  const fees = nftUtils.randomFees();
+  const recipients = nftUtils.randomRecipients();
   const initialTokenBalance = 1_000_000_000;
   const recipientsTokenAccounts: AccountMeta[] = [];
 
@@ -206,12 +229,12 @@ describe("NFT | Update", () => {
   before(async () => {
     payer = await utils.keypairWithSol();
     chillMint = await utils.createMint(primaryWallet.publicKey, 9);
-    config = await utils.getNftConfigPubkey(chillMint, program.programId);
+    config = await nftUtils.getNftConfigPubkey(chillMint, program.programId);
 
     for (let i = 0; i < recipients.length; i++) {
       const tokenAccount = await utils.createTokenAccount(
         recipients[i].address,
-        chillMint,
+        chillMint
       );
 
       const accountMeta = {
@@ -223,7 +246,8 @@ describe("NFT | Update", () => {
       recipientsTokenAccounts.push(accountMeta);
     }
 
-    await program.methods.initialize(fees, recipients)
+    await program.methods
+      .initialize(fees, recipients)
       .accounts({
         primaryWallet: primaryWallet.publicKey,
         payer: payer.publicKey,
@@ -236,14 +260,14 @@ describe("NFT | Update", () => {
 
     chillPayerTokenAccount = await utils.createTokenAccount(
       chillPayer.publicKey,
-      chillMint,
+      chillMint
     );
 
     await utils.mintTokens(
       primaryWallet,
       chillMint,
       chillPayerTokenAccount,
-      initialTokenBalance,
+      initialTokenBalance
     );
   });
 
@@ -254,15 +278,16 @@ describe("NFT | Update", () => {
 
     nftMetadata = await Metadata.Metadata.getPDA(nftMint);
     const nftMasterEdition = await Metadata.MasterEdition.getPDA(nftMint);
-    const nftChillMetadata = await utils.getChillMetadataPubkey(
+    const nftChillMetadata = await nftUtils.getChillMetadataPubkey(
       nftMint,
-      program.programId,
+      program.programId
     );
 
-    const nftType = utils.randomNftType();
-    const nftArgs = utils.randomNftArgs();
+    const nftType = nftUtils.randomNftType();
+    const nftArgs = nftUtils.randomNftArgs();
 
-    await program.methods.mintNft(nftType, nftArgs, null)
+    await program.methods
+      .mintNft(nftType, nftArgs, null)
       .accounts({
         primaryWallet: primaryWallet.publicKey,
         payer: payer.publicKey,
@@ -278,28 +303,30 @@ describe("NFT | Update", () => {
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
         tokenMetadataProgram: Metadata.MetadataProgram.PUBKEY,
-      }).signers([primaryWallet, payer, chillPayer])
-      .remainingAccounts(recipientsTokenAccounts).rpc();
+      })
+      .signers([primaryWallet, payer, chillPayer])
+      .remainingAccounts(recipientsTokenAccounts)
+      .rpc();
 
     const chillMetadata = await program.account.chillNftMetadata.fetch(
-      nftChillMetadata,
+      nftChillMetadata
     );
 
     assert.equal(
       JSON.stringify(chillMetadata.nftType),
-      JSON.stringify(nftType),
+      JSON.stringify(nftType)
     );
 
-    const chillFeesAmount = utils.feesOf(fees, nftType).toNumber();
+    const chillFeesAmount = nftUtils.feesOf(fees, nftType).toNumber();
     const recipientsTokenAmounts: number[] = [];
     for (const index in recipientsTokenAccounts) {
       recipientsTokenAmounts.push(
-        await utils.tokenBalance(recipientsTokenAccounts[index].pubkey),
+        await utils.tokenBalance(recipientsTokenAccounts[index].pubkey)
       );
     }
 
     const chillPayerTokenAmount = await utils.tokenBalance(
-      chillPayerTokenAccount,
+      chillPayerTokenAccount
     );
     assert.equal(chillPayerTokenAmount, initialTokenBalance - chillFeesAmount);
 
@@ -307,9 +334,9 @@ describe("NFT | Update", () => {
     for (const index in recipientsTokenAmounts) {
       const share = recipients[index].mintShare;
       const amount = await utils.tokenBalance(
-        recipientsTokenAccounts[index].pubkey,
+        recipientsTokenAccounts[index].pubkey
       );
-      const expectedAmount = Math.round(chillFeesAmount * share / 100);
+      const expectedAmount = Math.round((chillFeesAmount * share) / 100);
 
       // Rust calculates amounts using integers, so they may slightly
       // differ from calculations with floating-point numbers
@@ -322,7 +349,7 @@ describe("NFT | Update", () => {
 
     const metadata = await Metadata.Metadata.load(
       program.provider.connection,
-      nftMetadata,
+      nftMetadata
     );
 
     assert.equal(metadata.data.data.uri, nftArgs.uri);
@@ -338,16 +365,20 @@ describe("NFT | Update", () => {
   });
 
   it("Update NFT", async () => {
-    const newNftArgs = utils.randomNftArgs();
-    await program.methods.updateNft(newNftArgs).accounts({
-      primaryWallet: primaryWallet.publicKey,
-      nftMetadata,
-      tokenMetadataProgram: Metadata.MetadataProgram.PUBKEY,
-    }).signers([primaryWallet]).rpc();
+    const newNftArgs = nftUtils.randomNftArgs();
+    await program.methods
+      .updateNft(newNftArgs)
+      .accounts({
+        primaryWallet: primaryWallet.publicKey,
+        nftMetadata,
+        tokenMetadataProgram: Metadata.MetadataProgram.PUBKEY,
+      })
+      .signers([primaryWallet])
+      .rpc();
 
     const metadata = await Metadata.Metadata.load(
       program.provider.connection,
-      nftMetadata,
+      nftMetadata
     );
 
     assert.equal(metadata.data.data.uri, newNftArgs.uri);
