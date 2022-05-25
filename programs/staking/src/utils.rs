@@ -78,13 +78,6 @@ pub fn calculate_daily_staking_reward(
         .unwrap()
         .as_u64();
 
-    msg!("DWS {}", days_without_stake);
-    msg!("TRFA {}", total_rewarded_free_amount);
-    msg!("F {}", free_amount);
-    msg!("N {}", numerator);
-    msg!("D {}", denomenator);
-    msg!("R {}", daily_reward);
-
     (daily_reward, rewarded_free_amount)
 }
 
@@ -133,15 +126,20 @@ pub fn calculate_user_reward_with_unspent_rewards(
 
         let mut increase = daily_staking_reward
             .checked_mul(user_staked_amount.into())
-            .and_then(|v| v.checked_div(total_staked_at_day_index.into()))
-            .unwrap()
-            .as_u64();
+            .unwrap();
 
         let boosted_day_index = day_index.checked_sub(user_start_day_index).unwrap();
         let boost = user_boosted_days.get(boosted_day_index as usize)?;
         if boost {
-            increase = increase.checked_mul(2).unwrap();
-        } else {
+            increase = increase.checked_mul(U256::new(2)).unwrap();
+        }
+
+        let increase = increase
+            .checked_div(total_staked_at_day_index.into())
+            .unwrap()
+            .as_u64();
+
+        if !boost {
             remainings = remainings.checked_add(increase).unwrap();
         }
 

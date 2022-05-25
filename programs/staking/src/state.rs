@@ -55,6 +55,24 @@ impl StakingInfo {
     pub const LEN: usize =
         DESCRIMINATOR_LEN + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8;
 
+    pub fn assert_ready_for_staking(&self) -> Result<()> {
+        let current_day = utils::current_day()?;
+
+        require_gt!(
+            self.end_day,
+            current_day,
+            StakingErrorCode::StakingIsFinished
+        );
+
+        require_gte!(
+            current_day,
+            self.start_day,
+            StakingErrorCode::StakingIsNotStarted,
+        );
+
+        Ok(())
+    }
+
     pub fn assert_not_finished(&self) -> Result<()> {
         let current_day = utils::current_day()?;
         require_gt!(

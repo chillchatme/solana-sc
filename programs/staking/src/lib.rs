@@ -181,7 +181,7 @@ pub mod chill_staking {
         let user_info = &mut ctx.accounts.user_info;
         let staking_info = &mut ctx.accounts.staking_info;
 
-        staking_info.assert_not_finished()?;
+        staking_info.assert_ready_for_staking()?;
 
         utils::update_user_reward(user_info, staking_info)?;
 
@@ -268,6 +268,19 @@ pub mod chill_staking {
         let boost_amount = (0..DAYS_IN_WINDOW)
             .map(|day| boosted_days.get(day as usize).unwrap() as u64)
             .sum();
+
+        let user_start_day_index = user_info
+            .start_day
+            .unwrap()
+            .checked_sub(staking_info.start_day)
+            .unwrap() as usize;
+
+        let mut staking_amounts = staking_info.get_vector()?;
+        let total_staked_that_day = staking_amounts.get(user_start_day_index)?;
+        let new_staked_amount = total_staked_that_day
+            .checked_sub(user_info.staked_amount)
+            .unwrap();
+        staking_amounts.set(user_start_day_index, &new_staked_amount)?;
 
         staking_info.total_stakes_number = staking_info.total_stakes_number.checked_sub(1).unwrap();
 
