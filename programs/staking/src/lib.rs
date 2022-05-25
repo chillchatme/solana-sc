@@ -20,12 +20,6 @@ pub struct InitializeArgs {
     pub end_time: u64,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize)]
-pub struct UnstakeArgs {
-    pub amount: u64,
-    pub force: bool,
-}
-
 impl InitializeArgs {
     pub fn start_day(&self) -> u64 {
         self.start_time.checked_div(SEC_PER_DAY).unwrap()
@@ -151,29 +145,34 @@ pub mod chill_staking {
         Ok(())
     }
 
-    pub fn redeem_remaining_reward_tokens(ctx: Context<RedeemRemainingRewardTokens>) -> Result<()> {
-        let stake_info = &mut ctx.accounts.staking_info;
-        let staking_token_authority = &ctx.accounts.staking_token_authority;
-        let staking_token_account = &ctx.accounts.staking_token_account;
+    pub fn redeem_remaining_reward_tokens(
+        ctx: Context<RedeemRemainingRewardTokens>,
+        amount: u64,
+    ) -> Result<()> {
+        let staking_info = &mut ctx.accounts.staking_info;
 
-        stake_info.assert_finished()?;
+        staking_info.assert_finished()?;
 
-        let stake_info_pubkey = stake_info.key();
-        let seeds = &[stake_info_pubkey.as_ref(), &[staking_token_authority.bump]];
-        let seeds = &[seeds.as_ref()];
+        let free_amount = staking_info
+            .reward_tokens_amount
+            .checked_sub(staking_info.total_rewarded_amount)
+            .unwrap();
 
-        let cpi_context = CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            token::Transfer {
-                from: staking_token_account.to_account_info(),
-                to: ctx.accounts.recipient_token_account.to_account_info(),
-                authority: staking_token_authority.to_account_info(),
-            },
-            seeds,
-        );
+        require_gte!(free_amount, amount, StakingErrorCode::InsufficientFunds,);
 
-        token::transfer(cpi_context, staking_token_account.amount)?;
-        stake_info.reward_tokens_amount = 0;
+        utils::transfer_tokens(
+            amount,
+            staking_info,
+            &ctx.accounts.staking_token_authority,
+            &ctx.accounts.staking_token_account,
+            &ctx.accounts.recipient_token_account,
+            &ctx.accounts.token_program,
+        )?;
+
+        staking_info.reward_tokens_amount = staking_info
+            .reward_tokens_amount
+            .checked_sub(amount)
+            .unwrap();
 
         Ok(())
     }
@@ -222,6 +221,7 @@ pub mod chill_staking {
             StakingErrorCode::StakeZeroTokens
         );
 
+        user_info.daily_staking_reward = staking_info.daily_staking_reward()?;
         user_info.start_day = Some(utils::current_day()?);
         user_info.total_staked_amount = user_info
             .total_staked_amount
@@ -240,12 +240,11 @@ pub mod chill_staking {
 
         staking_amounts.set(day_index, &new_amount)?;
 
-        if previous_amount == 0 {
-            staking_info.days_with_new_stake =
-                staking_info.days_with_new_stake.checked_add(1).unwrap();
-        }
+        staking_info.active_stakes_number =
+            staking_info.active_stakes_number.checked_add(1).unwrap();
 
         staking_info.total_stakes_number = staking_info.total_stakes_number.checked_add(1).unwrap();
+
         staking_info.total_staked_amount = staking_info
             .total_staked_amount
             .checked_add(user_info.staked_amount)
@@ -254,7 +253,64 @@ pub mod chill_staking {
         Ok(())
     }
 
-    pub fn claim(ctx: Context<ClaimAndUnstake>, amount: u64) -> Result<()> {
+    pub fn cancel(ctx: Context<UserUpdatesUserInfo>) -> Result<()> {
+        let user_info = &mut ctx.accounts.user_info;
+        let staking_info = &mut ctx.accounts.staking_info;
+
+        utils::update_user_reward(user_info, staking_info)?;
+
+        require!(
+            user_info.has_active_stake(),
+            StakingErrorCode::UserHasNoActiveStake
+        );
+
+        let boosted_days = user_info.get_vector()?;
+        let boost_amount = (0..DAYS_IN_WINDOW)
+            .map(|day| boosted_days.get(day as usize).unwrap() as u64)
+            .sum();
+
+        staking_info.total_stakes_number = staking_info.total_stakes_number.checked_sub(1).unwrap();
+
+        staking_info.active_stakes_number =
+            staking_info.active_stakes_number.checked_sub(1).unwrap();
+
+        staking_info.total_staked_amount = staking_info
+            .total_staked_amount
+            .checked_sub(user_info.staked_amount)
+            .unwrap();
+
+        staking_info.total_boost_amount = staking_info
+            .total_boost_amount
+            .checked_sub(boost_amount)
+            .unwrap();
+
+        user_info.start_day = None;
+
+        user_info.total_boost_amount = user_info
+            .total_boost_amount
+            .checked_sub(boost_amount)
+            .unwrap();
+
+        user_info.total_staked_amount = user_info
+            .total_staked_amount
+            .checked_sub(user_info.staked_amount)
+            .unwrap();
+
+        user_info.pending_amount = user_info
+            .pending_amount
+            .checked_add(user_info.staked_amount)
+            .unwrap();
+
+        user_info.staked_amount = 0;
+
+        emit!(event::Cancel {
+            user: ctx.accounts.user.key()
+        });
+
+        Ok(())
+    }
+
+    pub fn claim(ctx: Context<Claim>, amount: u64) -> Result<()> {
         require_neq!(amount, 0u64, StakingErrorCode::WithdrawZeroTokens);
 
         let user_info = &mut ctx.accounts.user_info;
@@ -262,11 +318,25 @@ pub mod chill_staking {
 
         utils::update_user_reward(user_info, staking_info)?;
 
-        require_gte!(
-            user_info.rewarded_amount,
-            amount,
-            StakingErrorCode::InsufficientFunds
-        );
+        let total_amount = user_info
+            .rewarded_amount
+            .checked_add(user_info.pending_amount)
+            .unwrap();
+
+        require_gte!(total_amount, amount, StakingErrorCode::InsufficientFunds);
+
+        if amount > user_info.rewarded_amount {
+            user_info.pending_amount = u128::from(user_info.pending_amount)
+                .checked_add(user_info.rewarded_amount.into())
+                .and_then(|v| v.checked_sub(amount.into()))
+                .unwrap()
+                .try_into()
+                .unwrap();
+
+            user_info.rewarded_amount = 0;
+        } else {
+            user_info.rewarded_amount = user_info.rewarded_amount.checked_sub(amount).unwrap();
+        }
 
         emit!(event::Claim {
             user: ctx.accounts.user.key(),
@@ -283,77 +353,8 @@ pub mod chill_staking {
         )
     }
 
-    pub fn unstake(ctx: Context<ClaimAndUnstake>, args: UnstakeArgs) -> Result<()> {
-        require_neq!(args.amount, 0u64, StakingErrorCode::WithdrawZeroTokens);
-
-        let user_info = &mut ctx.accounts.user_info;
-        let staking_info = &mut ctx.accounts.staking_info;
-
-        utils::update_user_reward(user_info, staking_info)?;
-
-        let user_has_active_stake = user_info.has_active_stake();
-        let exceeds_pending_amount = args.amount > user_info.pending_amount;
-
-        if user_has_active_stake && exceeds_pending_amount {
-            require!(args.force, StakingErrorCode::UseForceToDeactivateStake);
-
-            let boosted_days = user_info.get_vector()?;
-            let boost_amount = (0..DAYS_IN_WINDOW)
-                .map(|day| boosted_days.get(day as usize).unwrap() as u64)
-                .sum();
-
-            user_info.total_staked_amount = user_info
-                .total_staked_amount
-                .checked_sub(user_info.staked_amount)
-                .unwrap();
-
-            user_info.total_boost_amount = user_info
-                .total_boost_amount
-                .checked_sub(boost_amount)
-                .unwrap();
-
-            staking_info.total_staked_amount = staking_info
-                .total_staked_amount
-                .checked_sub(user_info.staked_amount)
-                .unwrap();
-
-            staking_info.total_stakes_number =
-                staking_info.total_stakes_number.checked_sub(1).unwrap();
-
-            staking_info.total_boost_amount = staking_info
-                .total_boost_amount
-                .checked_sub(boost_amount)
-                .unwrap();
-        }
-
-        let old_pending_amount = user_info.pending_amount;
-        user_info.pending_amount = user_info.pending_amount.saturating_sub(args.amount);
-
-        if exceeds_pending_amount {
-            user_info.staked_amount = u128::from(user_info.staked_amount)
-                .checked_add(old_pending_amount.into())
-                .and_then(|v| v.checked_sub(args.amount.into()))
-                .and_then(|v| v.try_into().ok())
-                .ok_or(StakingErrorCode::InsufficientFunds)?;
-        }
-
-        emit!(event::Unstake {
-            user: ctx.accounts.user.key(),
-            amount: args.amount
-        });
-
-        utils::transfer_tokens(
-            args.amount,
-            staking_info,
-            &ctx.accounts.staking_token_authority,
-            &ctx.accounts.staking_token_account,
-            &ctx.accounts.recipient_token_account,
-            &ctx.accounts.token_program,
-        )
-    }
-
     pub fn transfer_reward_to_pending_amount(
-        ctx: Context<BoostAndTransferReward>,
+        ctx: Context<UserUpdatesUserInfo>,
         amount: u64,
     ) -> Result<()> {
         let user_info = &mut ctx.accounts.user_info;
@@ -378,7 +379,7 @@ pub mod chill_staking {
         Ok(())
     }
 
-    pub fn boost(ctx: Context<BoostAndTransferReward>) -> Result<()> {
+    pub fn boost(ctx: Context<UserUpdatesUserInfo>) -> Result<()> {
         let user_info = &mut ctx.accounts.user_info;
         let staking_info = &mut ctx.accounts.staking_info;
 
@@ -423,6 +424,9 @@ pub enum StakingErrorCode {
 
     #[msg("UserInfo has tokens to withdraw")]
     UserInfoHasTokensToWithdraw,
+
+    #[msg("User don't have active stake")]
+    UserHasNoActiveStake,
 
     #[msg("Wrong vector size")]
     WrongVectorSize,

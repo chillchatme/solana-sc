@@ -13,7 +13,7 @@ pub const DAYS_IN_WINDOW: u64 = 7;
 pub const SEC_PER_DAY: u64 = 86400;
 
 #[cfg(feature = "short-day")]
-pub const SEC_PER_DAY: u64 = 2;
+pub const SEC_PER_DAY: u64 = 3;
 
 #[account]
 pub struct StakingTokenAuthority {
@@ -34,13 +34,15 @@ pub struct StakingInfo {
     pub end_day: u64,
 
     pub reward_tokens_amount: u64,
+    pub active_stakes_number: u64,
 
     // Daily reward
     pub last_daily_reward: u64,
     pub last_update_day: u64,
-    pub days_with_new_stake: u64,
-    pub unspent_boosted_rewards: u64,
-    pub rewarded_free_amount: u64,
+    pub days_without_stake: u64,
+    pub unspent_boosted_amount: u64,
+    pub daily_unspent_reward: u64,
+    pub rewarded_unspent_amount: u64,
 
     // Statistics
     pub total_stakes_number: u64,
@@ -51,7 +53,7 @@ pub struct StakingInfo {
 
 impl StakingInfo {
     pub const LEN: usize =
-        DESCRIMINATOR_LEN + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8;
+        DESCRIMINATOR_LEN + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8;
 
     pub fn assert_not_finished(&self) -> Result<()> {
         let current_day = utils::current_day()?;
@@ -79,22 +81,42 @@ impl StakingInfo {
         let current_day = utils::current_day()?;
 
         if self.last_update_day != current_day && self.last_update_day < self.end_day {
+            if self.last_update_day == 0 {
+                self.days_without_stake = current_day.checked_sub(self.start_day).unwrap();
+            } else {
+                let days_without_stake = current_day
+                    .checked_sub(self.last_update_day)
+                    .and_then(|v| v.checked_sub(DAYS_IN_WINDOW))
+                    .unwrap_or(0);
+
+                self.days_without_stake = self
+                    .days_without_stake
+                    .checked_add(days_without_stake)
+                    .unwrap();
+            }
+
             let day_index = self.day_index()?;
             let total_days = self.total_days();
+            let days_without_update = current_day.checked_sub(self.last_update_day).unwrap();
 
-            self.last_update_day = current_day;
+            self.rewarded_unspent_amount = self
+                .daily_unspent_reward
+                .checked_mul(cmp::min(days_without_update, DAYS_IN_WINDOW))
+                .and_then(|v| v.checked_add(self.rewarded_unspent_amount))
+                .unwrap();
 
             let (new_daily_reward, free_amount) = utils::calculate_daily_staking_reward(
                 day_index,
-                self.days_with_new_stake,
+                self.days_without_stake,
                 total_days,
-                self.unspent_boosted_rewards,
-                self.rewarded_free_amount,
+                self.unspent_boosted_amount,
+                self.rewarded_unspent_amount,
                 self.reward_tokens_amount,
             );
 
-            self.rewarded_free_amount = self.rewarded_free_amount.checked_add(free_amount).unwrap();
+            self.daily_unspent_reward = free_amount;
             self.last_daily_reward = new_daily_reward;
+            self.last_update_day = current_day;
         }
 
         Ok(self.last_daily_reward)

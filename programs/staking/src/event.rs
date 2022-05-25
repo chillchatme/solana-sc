@@ -33,3 +33,8 @@ pub struct TransferRewardToPendingAmount {
 pub struct Boost {
     pub user: Pubkey,
 }
+
+#[event]
+pub struct Cancel {
+    pub user: Pubkey,
+}

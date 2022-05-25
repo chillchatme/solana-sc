@@ -151,7 +151,7 @@ pub struct Stake<'info> {
 }
 
 #[derive(Accounts)]
-pub struct ClaimAndUnstake<'info> {
+pub struct Claim<'info> {
     pub user: Signer<'info>,
 
     #[account(mut, seeds = [staking_info.key().as_ref(), user.key().as_ref()], bump = user_info.bump)]
@@ -173,7 +173,7 @@ pub struct ClaimAndUnstake<'info> {
 }
 
 #[derive(Accounts)]
-pub struct BoostAndTransferReward<'info> {
+pub struct UserUpdatesUserInfo<'info> {
     pub user: Signer<'info>,
 
     #[account(mut, seeds = [staking_info.key().as_ref(), user.key().as_ref()], bump = user_info.bump)]
