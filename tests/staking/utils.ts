@@ -29,8 +29,16 @@ export type UserInfo = TypeDef<
   ChillStaking["accounts"][number]
 >;
 
+export type InitializeAccounts = Accounts<
+  ChillStaking["instructions"][5]["accounts"][number]
+>;
+
 export type StakeAccounts = Accounts<
   ChillStaking["instructions"][10]["accounts"][number]
+>;
+
+export type ClaimAccounts = Accounts<
+  ChillStaking["instructions"][12]["accounts"][number]
 >;
 
 export function getDefaultStakingInfo(): StakingInfo {

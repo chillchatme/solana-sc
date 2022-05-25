@@ -78,6 +78,20 @@ pub mod chill_staking {
     pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> {
         let staking_info = &mut ctx.accounts.staking_info;
 
+        let current_day = utils::current_day()?;
+
+        require_gt!(
+            args.start_day(),
+            current_day,
+            StakingErrorCode::StakingMustStartInFuture
+        );
+
+        require_gt!(
+            args.end_day(),
+            args.start_day(),
+            StakingErrorCode::EndDayMustBeBiggerThanStartDay,
+        );
+
         staking_info.primary_wallet = ctx.accounts.primary_wallet.key();
         staking_info.mint = ctx.accounts.chill_mint.key();
         staking_info.start_day = args.start_day();
@@ -261,7 +275,7 @@ pub mod chill_staking {
 
         require!(
             user_info.has_active_stake(),
-            StakingErrorCode::UserHasNoActiveStake
+            StakingErrorCode::NoActiveStake
         );
 
         let boosted_days = user_info.get_vector()?;
@@ -372,6 +386,7 @@ pub mod chill_staking {
     ) -> Result<()> {
         let user_info = &mut ctx.accounts.user_info;
         let staking_info = &mut ctx.accounts.staking_info;
+        staking_info.assert_not_finished()?;
 
         utils::update_user_reward(user_info, staking_info)?;
 
@@ -382,7 +397,7 @@ pub mod chill_staking {
         );
 
         user_info.rewarded_amount = user_info.rewarded_amount.checked_sub(amount).unwrap();
-        user_info.pending_amount = user_info.rewarded_amount.checked_add(amount).unwrap();
+        user_info.pending_amount = user_info.pending_amount.checked_add(amount).unwrap();
 
         emit!(event::TransferRewardToPendingAmount {
             user: ctx.accounts.user.key(),
@@ -435,11 +450,14 @@ pub enum StakingErrorCode {
     #[msg("Use force=true to deactivate stake")]
     UseForceToDeactivateStake,
 
+    #[msg("Staking must start in the future")]
+    StakingMustStartInFuture,
+
+    #[msg("End day must be bigger then start day")]
+    EndDayMustBeBiggerThanStartDay,
+
     #[msg("UserInfo has tokens to withdraw")]
     UserInfoHasTokensToWithdraw,
-
-    #[msg("User don't have active stake")]
-    UserHasNoActiveStake,
 
     #[msg("Wrong vector size")]
     WrongVectorSize,
