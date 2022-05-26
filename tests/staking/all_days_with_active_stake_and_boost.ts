@@ -174,6 +174,7 @@ describe("Staking simulation | All days with active stake and boost", () => {
     firstStakeAccounts = {
       user: firstUser.publicKey,
       payer: payer.publicKey,
+      tokenAccountAuthority: firstUser.publicKey,
       userInfo: firstUserInfoPubkey,
       fromTokenAccount: firstTokenAccount,
       stakingInfo: stakingInfoPubkey,
@@ -186,6 +187,7 @@ describe("Staking simulation | All days with active stake and boost", () => {
     secondStakeAccounts = {
       user: secondUser.publicKey,
       payer: payer.publicKey,
+      tokenAccountAuthority: secondUser.publicKey,
       userInfo: secondUserInfoPubkey,
       fromTokenAccount: secondTokenAccount,
       stakingInfo: stakingInfoPubkey,
@@ -198,6 +200,7 @@ describe("Staking simulation | All days with active stake and boost", () => {
     thirdStakeAccounts = {
       user: thirdUser.publicKey,
       payer: payer.publicKey,
+      tokenAccountAuthority: thirdUser.publicKey,
       userInfo: thirdUserInfoPubkey,
       fromTokenAccount: thirdTokenAccount,
       stakingInfo: stakingInfoPubkey,

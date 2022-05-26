@@ -49,10 +49,10 @@ export function getDefaultStakingInfo(): StakingInfo {
     endDay: new BN(0),
     lastDailyReward: new BN(0),
     lastUpdateDay: new BN(0),
-    unspentBoostedAmount: new BN(0),
+    totalUnspentAmount: new BN(0),
     dailyUnspentReward: new BN(0),
     rewardedUnspentAmount: new BN(0),
-    daysWithoutStake: new BN(0),
+    totalDaysWithoutStake: new BN(0),
     activeStakesNumber: new BN(0),
     rewardTokensAmount: new BN(0),
     totalBoostAmount: new BN(0),
@@ -89,10 +89,10 @@ export function assertStakingInfoEqual(
     endDay: stakingInfo.endDay,
     lastDailyReward: stakingInfo.lastDailyReward,
     lastUpdateDay: stakingInfo.lastUpdateDay,
-    unspentBoostedAmount: stakingInfo.unspentBoostedAmount,
+    totalUnspentAmount: stakingInfo.totalUnspentAmount,
     dailyUnspentReward: stakingInfo.dailyUnspentReward,
     rewardedUnspentAmount: stakingInfo.rewardedUnspentAmount,
-    daysWithoutStake: stakingInfo.daysWithoutStake,
+    totalDaysWithoutStake: stakingInfo.totalDaysWithoutStake,
     activeStakesNumber: stakingInfo.activeStakesNumber,
     rewardTokensAmount: stakingInfo.rewardTokensAmount,
     totalBoostAmount: stakingInfo.totalBoostAmount,
@@ -108,10 +108,10 @@ export function assertStakingInfoEqual(
     endDay: expectedStakingInfo.endDay,
     lastDailyReward: expectedStakingInfo.lastDailyReward,
     lastUpdateDay: expectedStakingInfo.lastUpdateDay,
-    unspentBoostedAmount: expectedStakingInfo.unspentBoostedAmount,
+    totalUnspentAmount: expectedStakingInfo.totalUnspentAmount,
     dailyUnspentReward: expectedStakingInfo.dailyUnspentReward,
     rewardedUnspentAmount: expectedStakingInfo.rewardedUnspentAmount,
-    daysWithoutStake: expectedStakingInfo.daysWithoutStake,
+    totalDaysWithoutStake: expectedStakingInfo.totalDaysWithoutStake,
     activeStakesNumber: expectedStakingInfo.activeStakesNumber,
     rewardTokensAmount: expectedStakingInfo.rewardTokensAmount,
     totalBoostAmount: expectedStakingInfo.totalBoostAmount,
@@ -237,7 +237,7 @@ export async function addRewardTokens(
     .addRewardTokens(new BN(amount))
     .accounts({
       primaryWallet: primaryWallet.publicKey,
-      tokenAuthority: tokenAuthority.publicKey,
+      tokenAccountAuthority: tokenAuthority.publicKey,
       tokenAccount,
       stakingInfo,
       stakingTokenAuthority,
@@ -295,11 +295,6 @@ export async function getDailyRewardFromSimulation(
   program: Program<ChillStaking>,
   stakingInfo: PublicKey
 ): Promise<BN> {
-  await program.methods
-    .viewDailyStakingReward()
-    .accounts({ stakingInfo })
-    .rpc({ skipPreflight: true });
-
   return await program.methods
     .viewDailyStakingReward()
     .accounts({ stakingInfo })
@@ -311,14 +306,6 @@ export async function getUserRewardFromSimulation(
   userInfo: PublicKey,
   stakingInfo: PublicKey
 ): Promise<BN> {
-  await program.methods
-    .viewUserRewardAmount()
-    .accounts({
-      userInfo,
-      stakingInfo,
-    })
-    .rpc({ skipPreflight: true });
-
   const info = await program.methods
     .viewUserRewardAmount()
     .accounts({

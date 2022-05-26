@@ -14,7 +14,6 @@ import {
   ASSOCIATED_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
 } from "@project-serum/anchor/dist/cjs/utils/token";
-import { token } from "@project-serum/anchor/dist/cjs/utils";
 
 describe("Staking simulation | Edge cases", () => {
   anchor.setProvider(anchor.AnchorProvider.env());
@@ -32,9 +31,10 @@ describe("Staking simulation | Edge cases", () => {
   const expectedStakingInfo = stakingUtils.getDefaultStakingInfo();
   const expectedUserInfo = stakingUtils.getDefaultUserInfo();
 
-  let user: Keypair;
-  let userInfoPubkey: PublicKey;
+  const user = Keypair.generate();
+  let tokenAccountAuthority: Keypair;
   let tokenAccount: PublicKey;
+  let userInfoPubkey: PublicKey;
   let startDay: number;
 
   const initialBalance = 200_000;
@@ -49,11 +49,12 @@ describe("Staking simulation | Edge cases", () => {
     payer = await utils.keypairWithSol();
     chillMint = await utils.createMint(primaryWallet.publicKey, 9);
 
-    [user, tokenAccount] = await stakingUtils.createUserWithTokenAccount(
-      chillMint,
-      primaryWallet,
-      initialBalance
-    );
+    [tokenAccountAuthority, tokenAccount] =
+      await stakingUtils.createUserWithTokenAccount(
+        chillMint,
+        primaryWallet,
+        initialBalance
+      );
   });
 
   it("Try to initialize after start day", async () => {
@@ -180,6 +181,7 @@ describe("Staking simulation | Edge cases", () => {
     stakeAccounts = {
       user: user.publicKey,
       payer: payer.publicKey,
+      tokenAccountAuthority: tokenAccountAuthority.publicKey,
       userInfo: userInfoPubkey,
       fromTokenAccount: tokenAccount,
       stakingInfo: stakingInfoPubkey,
@@ -194,7 +196,7 @@ describe("Staking simulation | Edge cases", () => {
         await program.methods
           .stake(new BN(stakeAmount))
           .accounts(stakeAccounts)
-          .signers([user, payer])
+          .signers([user, payer, tokenAccountAuthority])
           .rpc();
       },
       (err: AnchorError) => {
@@ -228,13 +230,31 @@ describe("Staking simulation | Edge cases", () => {
     await stakingUtils.waitUntil(program, startDay);
   });
 
+  it("Try to add reward tokens after start", async () => {
+    await assert.rejects(
+      async () => {
+        await stakingUtils.addRewardTokens(
+          1,
+          primaryWallet,
+          chillMint,
+          stakingInfoPubkey,
+          program
+        );
+      },
+      (err: AnchorError) => {
+        assert.equal(err.error.errorCode.code, "StakingIsAlreadyStarted");
+        return true;
+      }
+    );
+  });
+
   it("Try to stake zero tokens", async () => {
     await assert.rejects(
       async () => {
         await program.methods
           .stake(new BN(0))
           .accounts(stakeAccounts)
-          .signers([user, payer])
+          .signers([user, payer, tokenAccountAuthority])
           .rpc();
       },
       (err: AnchorError) => {
@@ -248,7 +268,7 @@ describe("Staking simulation | Edge cases", () => {
     await program.methods
       .stake(new BN(stakeAmount))
       .accounts(stakeAccounts)
-      .signers([user, payer])
+      .signers([user, payer, tokenAccountAuthority])
       .rpc();
 
     const userInfo = await program.account.userInfo.fetch(userInfoPubkey);
@@ -280,7 +300,7 @@ describe("Staking simulation | Edge cases", () => {
         await program.methods
           .stake(new BN(0))
           .accounts(stakeAccounts)
-          .signers([user, payer])
+          .signers([user, payer, tokenAccountAuthority])
           .rpc();
       },
       (err: AnchorError) => {
@@ -296,7 +316,7 @@ describe("Staking simulation | Edge cases", () => {
     await program.methods
       .stake(new BN(stakeAmount))
       .accounts(stakeAccounts)
-      .signers([user, payer])
+      .signers([user, payer, tokenAccountAuthority])
       .rpc();
 
     expectedUserInfo.pendingAmount = new BN(stakeAmount);
@@ -311,7 +331,7 @@ describe("Staking simulation | Edge cases", () => {
   });
 
   it("Boost", async () => {
-    await stakingUtils.waitForDay(program);
+    await stakingUtils.waitUntil(program, startDay + 3);
     await program.methods
       .boost()
       .accounts({
@@ -321,6 +341,9 @@ describe("Staking simulation | Edge cases", () => {
       })
       .signers([user])
       .rpc();
+
+    const currentDay = await stakingUtils.getCurrentDay(program);
+    assert.equal(currentDay.toNumber(), startDay + 3);
 
     const userInfo = await program.account.userInfo.fetch(userInfoPubkey);
     const stakingInfo = await program.account.stakingInfo.fetch(
@@ -352,6 +375,25 @@ describe("Staking simulation | Edge cases", () => {
         return true;
       }
     );
+  });
+
+  it("Check boosted days array", async () => {
+    const boostedDays: Array<boolean> = await program.methods
+      .viewBoostedDaysList()
+      .accounts({
+        userInfo: userInfoPubkey,
+      })
+      .view();
+
+    assert.deepEqual(boostedDays, [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+    ]);
   });
 
   it("Claim pending amount", async () => {
@@ -402,8 +444,6 @@ describe("Staking simulation | Edge cases", () => {
   });
 
   it("Check the reward before the stake expires", async () => {
-    const userInfo = await program.account.userInfo.fetch(userInfoPubkey);
-
     let currentDay = await stakingUtils.getCurrentDay(program);
     let reward = await stakingUtils.getUserRewardFromSimulation(
       program,
@@ -470,7 +510,7 @@ describe("Staking simulation | Edge cases", () => {
 
     expectedStakingInfo.activeStakesNumber = new BN(0);
     expectedStakingInfo.totalRewardedAmount = new BN(40_000_000);
-    expectedStakingInfo.unspentBoostedAmount = new BN(30_000_000);
+    expectedStakingInfo.totalUnspentAmount = new BN(30_000_000);
 
     expectedUserInfo.startDay = null;
     expectedUserInfo.stakedAmount = new BN(0);
@@ -589,7 +629,7 @@ describe("Staking simulation | Edge cases", () => {
     await program.methods
       .stake(new BN(0))
       .accounts(stakeAccounts)
-      .signers([user, payer])
+      .signers([user, payer, tokenAccountAuthority])
       .rpc();
 
     const currentDay = await stakingUtils.getCurrentDay(program);
@@ -607,7 +647,8 @@ describe("Staking simulation | Edge cases", () => {
     expectedUserInfo.totalStakedAmount = new BN(20_100_000);
 
     expectedStakingInfo.activeStakesNumber = new BN(1);
-    expectedStakingInfo.daysWithoutStake = new BN(1);
+    expectedStakingInfo.totalDaysWithoutStake = new BN(1);
+    expectedStakingInfo.totalUnspentAmount = new BN(40_000_000);
     expectedStakingInfo.lastUpdateDay = new BN(startDay + 8);
     expectedStakingInfo.lastDailyReward = new BN(15_000_000);
     expectedStakingInfo.totalStakedAmount = new BN(20_100_000);
@@ -706,7 +747,7 @@ describe("Staking simulation | Edge cases", () => {
 
     expectedStakingInfo.activeStakesNumber = new BN(0);
     expectedStakingInfo.totalRewardedAmount = new BN(70_000_000);
-    expectedStakingInfo.unspentBoostedAmount = new BN(60_000_000);
+    expectedStakingInfo.totalUnspentAmount = new BN(70_000_000);
 
     stakingUtils.assertUserInfoEqual(userInfo, expectedUserInfo);
     stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);
@@ -718,26 +759,8 @@ describe("Staking simulation | Edge cases", () => {
         await program.methods
           .stake(new BN(1))
           .accounts(stakeAccounts)
-          .signers([user, payer])
+          .signers([user, payer, tokenAccountAuthority])
           .rpc();
-      },
-      (err: AnchorError) => {
-        assert.equal(err.error.errorCode.code, "StakingIsFinished");
-        return true;
-      }
-    );
-  });
-
-  it("Try to add reward tokens", async () => {
-    await assert.rejects(
-      async () => {
-        await stakingUtils.addRewardTokens(
-          1,
-          primaryWallet,
-          chillMint,
-          stakingInfoPubkey,
-          program
-        );
       },
       (err: AnchorError) => {
         assert.equal(err.error.errorCode.code, "StakingIsFinished");
