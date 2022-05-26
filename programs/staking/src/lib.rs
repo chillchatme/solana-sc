@@ -54,10 +54,10 @@ pub mod chill_staking {
         utils::current_day()
     }
 
-    pub fn view_staking_amount_in_day(ctx: Context<ViewStaking>, index: u64) -> Result<u64> {
+    pub fn view_staked_amount_in_day(ctx: Context<ViewStaking>, index: u64) -> Result<u64> {
         let staking_info = &ctx.accounts.staking_info;
-        let staking_amounts = staking_info.get_vector()?;
-        staking_amounts.get(index as usize)
+        let staked_amounts = staking_info.get_vector()?;
+        staked_amounts.get(index as usize)
     }
 
     pub fn view_daily_staking_reward(ctx: Context<ViewStaking>) -> Result<u64> {
@@ -79,23 +79,25 @@ pub mod chill_staking {
         let staking_info = &mut ctx.accounts.staking_info;
 
         let current_day = utils::current_day()?;
+        let start_day = args.start_day();
+        let end_day = args.end_day();
 
         require_gt!(
-            args.start_day(),
+            start_day,
             current_day,
             StakingErrorCode::StakingMustStartInFuture
         );
 
         require_gt!(
-            args.end_day(),
-            args.start_day(),
+            end_day,
+            start_day,
             StakingErrorCode::EndDayMustBeBiggerThanStartDay,
         );
 
         staking_info.primary_wallet = ctx.accounts.primary_wallet.key();
         staking_info.mint = ctx.accounts.chill_mint.key();
-        staking_info.start_day = args.start_day();
-        staking_info.end_day = args.end_day();
+        staking_info.start_day = start_day;
+        staking_info.end_day = end_day;
 
         let bump = ctx.bumps["staking_token_authority"];
         let staking_token_authority = &mut ctx.accounts.staking_token_authority;
@@ -106,15 +108,7 @@ pub mod chill_staking {
 
     pub fn close_staking_info(ctx: Context<CloseStakingInfo>) -> Result<()> {
         let staking_info = &ctx.accounts.staking_info;
-        let current_day = utils::current_day()?;
-
-        require_gte!(
-            current_day,
-            staking_info.end_day,
-            StakingErrorCode::StakingIsNotFinished
-        );
-
-        Ok(())
+        staking_info.assert_finished()
     }
 
     pub fn close_user_info(ctx: Context<CloseUserInfo>) -> Result<()> {
@@ -137,7 +131,7 @@ pub mod chill_staking {
 
     pub fn add_reward_tokens(ctx: Context<AddRewardTokens>, amount: u64) -> Result<()> {
         let staking_info = &mut ctx.accounts.staking_info;
-        staking_info.assert_not_finished()?;
+        staking_info.assert_not_started()?;
 
         staking_info.reward_tokens_amount = staking_info
             .reward_tokens_amount
@@ -149,7 +143,7 @@ pub mod chill_staking {
             token::Transfer {
                 from: ctx.accounts.token_account.to_account_info(),
                 to: ctx.accounts.staking_token_account.to_account_info(),
-                authority: ctx.accounts.token_authority.to_account_info(),
+                authority: ctx.accounts.token_account_authority.to_account_info(),
             },
         );
 
@@ -172,7 +166,7 @@ pub mod chill_staking {
             .checked_sub(staking_info.total_rewarded_amount)
             .unwrap();
 
-        require_gte!(free_amount, amount, StakingErrorCode::InsufficientFunds,);
+        require_gte!(free_amount, amount, StakingErrorCode::InsufficientFunds);
 
         utils::transfer_tokens(
             amount,
@@ -195,7 +189,7 @@ pub mod chill_staking {
         let user_info = &mut ctx.accounts.user_info;
         let staking_info = &mut ctx.accounts.staking_info;
 
-        staking_info.assert_ready_for_staking()?;
+        staking_info.assert_active()?;
 
         utils::update_user_reward(user_info, staking_info)?;
 
@@ -209,7 +203,7 @@ pub mod chill_staking {
             token::Transfer {
                 from: ctx.accounts.from_token_account.to_account_info(),
                 to: ctx.accounts.staking_token_account.to_account_info(),
-                authority: ctx.accounts.user.to_account_info(),
+                authority: ctx.accounts.token_account_authority.to_account_info(),
             },
         );
 
@@ -225,10 +219,10 @@ pub mod chill_staking {
             return Ok(());
         }
 
-        let increase = user_info.pending_amount.checked_add(amount).unwrap();
+        let increment = user_info.pending_amount.checked_add(amount).unwrap();
+        user_info.staked_amount = user_info.staked_amount.checked_add(increment).unwrap();
         user_info.pending_amount = 0;
 
-        user_info.staked_amount = user_info.staked_amount.checked_add(increase).unwrap();
         require_neq!(
             user_info.staked_amount,
             0,
@@ -245,14 +239,14 @@ pub mod chill_staking {
         let mut user_boosted_days = user_info.get_vector()?;
         user_boosted_days.clear();
 
-        let mut staking_amounts = staking_info.get_vector()?;
+        let mut staked_amounts = staking_info.get_vector()?;
         let day_index = staking_info.day_index()? as usize;
-        let previous_amount = staking_amounts.get(day_index)?;
+        let previous_amount = staked_amounts.get(day_index)?;
         let new_amount = previous_amount
             .checked_add(user_info.staked_amount)
             .unwrap();
 
-        staking_amounts.set(day_index, &new_amount)?;
+        staked_amounts.set(day_index, &new_amount)?;
 
         staking_info.active_stakes_number =
             staking_info.active_stakes_number.checked_add(1).unwrap();
@@ -289,12 +283,12 @@ pub mod chill_staking {
             .checked_sub(staking_info.start_day)
             .unwrap() as usize;
 
-        let mut staking_amounts = staking_info.get_vector()?;
-        let total_staked_that_day = staking_amounts.get(user_start_day_index)?;
+        let mut staked_amounts = staking_info.get_vector()?;
+        let total_staked_that_day = staked_amounts.get(user_start_day_index)?;
         let new_staked_amount = total_staked_that_day
             .checked_sub(user_info.staked_amount)
             .unwrap();
-        staking_amounts.set(user_start_day_index, &new_staked_amount)?;
+        staked_amounts.set(user_start_day_index, &new_staked_amount)?;
 
         staking_info.total_stakes_number = staking_info.total_stakes_number.checked_sub(1).unwrap();
 
@@ -386,7 +380,7 @@ pub mod chill_staking {
     ) -> Result<()> {
         let user_info = &mut ctx.accounts.user_info;
         let staking_info = &mut ctx.accounts.staking_info;
-        staking_info.assert_not_finished()?;
+        staking_info.assert_active()?;
 
         utils::update_user_reward(user_info, staking_info)?;
 
@@ -473,6 +467,9 @@ pub enum StakingErrorCode {
 
     #[msg("User doesn't have active stake")]
     NoActiveStake,
+
+    #[msg("Staking is already started")]
+    StakingIsAlreadyStarted,
 
     #[msg("Staking is finished")]
     StakingIsFinished,

@@ -41,49 +41,71 @@ pub fn current_day() -> Result<u64> {
     Ok(timestamp.checked_div(SEC_PER_DAY).unwrap())
 }
 
-pub fn calculate_daily_staking_reward(
-    day_index: u64,
+pub fn calculate_unspent_amount_from_days_without_stake(
     days_without_stake: u64,
     total_days: u64,
-    unspent_boosted_amount: u64,
+    reward_tokens_amount: u64,
+) -> u64 {
+    U256::from(reward_tokens_amount)
+        .checked_mul(days_without_stake.into())
+        .and_then(|v| v.checked_div(total_days.into()))
+        .unwrap()
+        .as_u64()
+}
+
+pub fn calculate_daily_staking_reward(
+    day_index: u64,
+    total_days: u64,
+    unspent_amount: u64,
     total_rewarded_free_amount: u64,
     reward_tokens_amount: u64,
 ) -> (u64, u64) {
     let remaining_days = total_days.checked_sub(day_index).unwrap();
+    let total_days = U256::from(total_days);
 
-    let max_daily_reward = reward_tokens_amount.checked_div(total_days).unwrap();
-    let max_rewarded = U256::from(max_daily_reward)
+    let max_daily_reward_x_total_days = reward_tokens_amount;
+    let max_rewarded_x_total_days = U256::from(max_daily_reward_x_total_days)
         .checked_mul(day_index.into())
         .unwrap();
 
     let denomenator = U256::from(remaining_days)
         .checked_mul(U256::new(2))
+        .and_then(|v| v.checked_mul(total_days))
         .unwrap();
 
-    let free_amount = U256::from(days_without_stake)
-        .checked_mul(max_daily_reward.into())
-        .and_then(|v| v.checked_add(unspent_boosted_amount.into()))
-        .and_then(|v| v.checked_sub(total_rewarded_free_amount.into()))
+    let unspent_amount_x_total_days = U256::from(unspent_amount).checked_mul(total_days).unwrap();
+
+    let total_rewarded_free_amount_x_total_days = U256::from(total_rewarded_free_amount)
+        .checked_mul(total_days)
         .unwrap();
 
-    let numerator = U256::from(reward_tokens_amount)
-        .checked_add(free_amount)
-        .and_then(|v| v.checked_sub(max_rewarded))
+    let free_amount_x_total_days = unspent_amount_x_total_days
+        .checked_sub(total_rewarded_free_amount_x_total_days)
+        .unwrap();
+
+    let reward_tokens_amount_x_total_days = U256::from(reward_tokens_amount)
+        .checked_mul(total_days)
+        .unwrap();
+
+    let numerator = U256::from(reward_tokens_amount_x_total_days)
+        .checked_add(free_amount_x_total_days)
+        .and_then(|v| v.checked_sub(max_rewarded_x_total_days))
         .unwrap();
 
     let daily_reward = numerator.checked_div(denomenator).unwrap().as_u64();
 
-    let rewarded_free_amount = U256::from(free_amount)
-        .checked_div(remaining_days.into())
+    let remaining_days_x_total_days = U256::from(remaining_days).checked_mul(total_days).unwrap();
+    let daily_unspent_reward = U256::from(free_amount_x_total_days)
+        .checked_div(remaining_days_x_total_days)
         .unwrap()
         .as_u64();
 
-    (daily_reward, rewarded_free_amount)
+    (daily_reward, daily_unspent_reward)
 }
 
-pub fn calculate_total_staking_amount_before(
+pub fn calculate_total_staked_amount_before_day(
     day_index: u64,
-    staking_amounts: &LazyVector<u64>,
+    staked_amounts: &LazyVector<u64>,
 ) -> Result<u64> {
     let mut total_staked = 0u64;
 
@@ -93,7 +115,7 @@ pub fn calculate_total_staking_amount_before(
         .unwrap_or(0);
 
     for index in from_index..day_index {
-        let stake_amount = staking_amounts.get(index as usize)?;
+        let stake_amount = staked_amounts.get(index as usize)?;
         total_staked = total_staked.checked_add(stake_amount).unwrap();
     }
 
@@ -104,14 +126,14 @@ pub fn calculate_user_reward_with_unspent_rewards(
     user_staked_amount: u64,
     user_start_day_index: u64,
     user_boosted_days: &LazyVector<bool>,
-    staking_amounts: &LazyVector<u64>,
+    staked_amounts: &LazyVector<u64>,
     total_days: u64,
     daily_staking_reward: u64,
 ) -> Result<(u64, u64)> {
     let daily_staking_reward = U256::from(daily_staking_reward);
 
     let mut total_staked_at_day_index =
-        calculate_total_staking_amount_before(user_start_day_index, staking_amounts)?;
+        calculate_total_staked_amount_before_day(user_start_day_index, staked_amounts)?;
 
     let last_stake_day = user_start_day_index.checked_add(DAYS_IN_WINDOW).unwrap();
     let to = cmp::min(total_days, last_stake_day);
@@ -119,7 +141,7 @@ pub fn calculate_user_reward_with_unspent_rewards(
     let mut reward = 0u64;
     let mut remainings = 0u64;
     for day_index in user_start_day_index..to {
-        let staked_amount = staking_amounts.get(day_index as usize)?;
+        let staked_amount = staked_amounts.get(day_index as usize)?;
         total_staked_at_day_index = total_staked_at_day_index
             .checked_add(staked_amount)
             .unwrap();
@@ -150,7 +172,7 @@ pub fn calculate_user_reward_with_unspent_rewards(
             .and_then(|v| v.checked_sub(DAYS_IN_WINDOW));
 
         if let Some(min_window_index_next_day) = min_window_index_next_day {
-            let staked_amount = staking_amounts.get(min_window_index_next_day as usize)?;
+            let staked_amount = staked_amounts.get(min_window_index_next_day as usize)?;
             total_staked_at_day_index = total_staked_at_day_index
                 .checked_sub(staked_amount)
                 .unwrap();
@@ -172,7 +194,7 @@ pub fn update_user_reward(
 
     let total_days = staking_info.total_days();
     let staking_start_day = staking_info.start_day;
-    let staking_amounts = staking_info.get_vector()?;
+    let staked_amounts = staking_info.get_vector()?;
 
     let user_start_day = user_info.start_day.unwrap();
     let user_staked_amount = user_info.staked_amount;
@@ -184,7 +206,7 @@ pub fn update_user_reward(
         user_staked_amount,
         user_start_day_index,
         &user_boosted_days,
-        &staking_amounts,
+        &staked_amounts,
         total_days,
         daily_staking_reward,
     )?;
@@ -200,8 +222,8 @@ pub fn update_user_reward(
     user_info.staked_amount = 0;
 
     staking_info.active_stakes_number = staking_info.active_stakes_number.checked_sub(1).unwrap();
-    staking_info.unspent_boosted_amount = staking_info
-        .unspent_boosted_amount
+    staking_info.total_unspent_amount = staking_info
+        .total_unspent_amount
         .checked_add(unspent_amount)
         .unwrap();
 
@@ -230,7 +252,6 @@ mod tests {
         for i in 0..total_days {
             let (daily_reward, rewarded_free_amount) = calculate_daily_staking_reward(
                 i,
-                0,
                 total_days,
                 0,
                 total_rewarded_free_amount,
@@ -247,9 +268,8 @@ mod tests {
         for i in 1..total_days {
             let (daily_reward, rewarded_free_amount) = calculate_daily_staking_reward(
                 i,
-                1,
                 total_days,
-                0,
+                1_000_000,
                 total_rewarded_free_amount,
                 reward_tokens_amount,
             );
@@ -264,9 +284,8 @@ mod tests {
         for i in 2..total_days {
             let (daily_reward, rewarded_free_amount) = calculate_daily_staking_reward(
                 i,
-                2,
                 total_days,
-                0,
+                2_000_000,
                 total_rewarded_free_amount,
                 reward_tokens_amount,
             );
@@ -281,9 +300,8 @@ mod tests {
         for i in (10..total_days).step_by(2) {
             let (daily_reward, rewarded_free_amount) = calculate_daily_staking_reward(
                 i,
-                10,
                 total_days,
-                0,
+                10_000_000,
                 total_rewarded_free_amount,
                 reward_tokens_amount,
             );
@@ -298,7 +316,6 @@ mod tests {
         for i in 1..total_days {
             let (daily_reward, rewarded_free_amount) = calculate_daily_staking_reward(
                 i,
-                0,
                 total_days,
                 500_000,
                 total_rewarded_free_amount,
@@ -315,7 +332,6 @@ mod tests {
         for i in 2..total_days {
             let (daily_reward, rewarded_free_amount) = calculate_daily_staking_reward(
                 i,
-                0,
                 total_days,
                 1_000_000,
                 total_rewarded_free_amount,
@@ -333,9 +349,8 @@ mod tests {
         for i in 2..total_days {
             let (daily_reward, rewarded_free_amount) = calculate_daily_staking_reward(
                 i,
-                1,
                 total_days,
-                500_000,
+                1_500_000,
                 total_rewarded_free_amount,
                 reward_tokens_amount,
             );
@@ -346,17 +361,17 @@ mod tests {
     }
 
     #[test]
-    fn total_staking_amount_before() {
-        let mut staking_amounts_buffer = [0u8; 144];
-        let staking_amounts_data = Rc::new(RefCell::new(staking_amounts_buffer.as_mut()));
-        let mut staking_amounts = LazyVector::new(0, 18, 8, staking_amounts_data).unwrap();
+    fn total_staked_amount_before() {
+        let mut staked_amounts_buffer = [0u8; 144];
+        let staked_amounts_data = Rc::new(RefCell::new(staked_amounts_buffer.as_mut()));
+        let mut staked_amounts = LazyVector::new(0, 18, 8, staked_amounts_data).unwrap();
 
-        staking_amounts.set(0, &1000).unwrap();
-        staking_amounts.set(2, &2000).unwrap();
-        staking_amounts.set(4, &2500).unwrap();
-        staking_amounts.set(7, &2000).unwrap();
-        staking_amounts.set(9, &5000).unwrap();
-        staking_amounts.set(10, &200).unwrap();
+        staked_amounts.set(0, &1000).unwrap();
+        staked_amounts.set(2, &2000).unwrap();
+        staked_amounts.set(4, &2500).unwrap();
+        staked_amounts.set(7, &2000).unwrap();
+        staked_amounts.set(9, &5000).unwrap();
+        staked_amounts.set(10, &200).unwrap();
 
         // Day, Staked, Staked during last 6 days
         //  0   1000    0
@@ -386,7 +401,7 @@ mod tests {
 
         for (index, expected_value) in expected_values.iter().enumerate() {
             let actual_value =
-                calculate_total_staking_amount_before(index as u64, &staking_amounts).unwrap();
+                calculate_total_staked_amount_before_day(index as u64, &staked_amounts).unwrap();
 
             assert_eq!(actual_value, *expected_value, "Index: {}", index);
         }
@@ -397,22 +412,22 @@ mod tests {
         let total_days = 12;
         let daily_staking_reward = 100;
 
-        let mut staking_amounts_buffer = [0u8; 96];
-        let staking_amounts_data = Rc::new(RefCell::new(staking_amounts_buffer.as_mut()));
-        let mut staking_amounts = LazyVector::new(0, 12, 8, staking_amounts_data).unwrap();
+        let mut staked_amounts_buffer = [0u8; 96];
+        let staked_amounts_data = Rc::new(RefCell::new(staked_amounts_buffer.as_mut()));
+        let mut staked_amounts = LazyVector::new(0, 12, 8, staked_amounts_data).unwrap();
 
         // User 1 staked 500 tokens in day 0
-        staking_amounts.set(0, &500).unwrap();
+        staked_amounts.set(0, &500).unwrap();
 
         // User 2 staked 1500 tokens in day 2
         // User 3 staked 500 tokens in day 2
-        staking_amounts.set(2, &2000).unwrap();
+        staked_amounts.set(2, &2000).unwrap();
 
         // User 4 staked 2500 tokens in day 4
-        staking_amounts.set(4, &2500).unwrap();
+        staked_amounts.set(4, &2500).unwrap();
 
         // User 5 staked 1000 tokens in day 8
-        staking_amounts.set(8, &1000).unwrap();
+        staked_amounts.set(8, &1000).unwrap();
 
         let mut boosted_days_buffer = [0u8; 7];
         let boosted_days_data = Rc::new(RefCell::new(boosted_days_buffer.as_mut()));
@@ -440,7 +455,7 @@ mod tests {
             500,
             0,
             &boosted_days,
-            &staking_amounts,
+            &staked_amounts,
             total_days,
             daily_staking_reward,
         )
@@ -465,7 +480,7 @@ mod tests {
             1500,
             2,
             &boosted_days,
-            &staking_amounts,
+            &staked_amounts,
             total_days,
             daily_staking_reward,
         )
@@ -488,7 +503,7 @@ mod tests {
             500,
             2,
             &boosted_days,
-            &staking_amounts,
+            &staked_amounts,
             total_days,
             daily_staking_reward,
         )
@@ -511,7 +526,7 @@ mod tests {
             2500,
             4,
             &boosted_days,
-            &staking_amounts,
+            &staked_amounts,
             total_days,
             daily_staking_reward,
         )
@@ -531,7 +546,7 @@ mod tests {
             1000,
             8,
             &boosted_days,
-            &staking_amounts,
+            &staked_amounts,
             total_days,
             daily_staking_reward,
         )
@@ -545,7 +560,7 @@ mod tests {
             1000,
             12,
             &boosted_days,
-            &staking_amounts,
+            &staked_amounts,
             total_days,
             daily_staking_reward,
         )

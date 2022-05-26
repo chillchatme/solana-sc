@@ -25,7 +25,6 @@ pub struct Initialize<'info> {
     #[account(init, payer = payer, associated_token::mint = chill_mint, associated_token::authority = staking_token_authority)]
     pub staking_token_account: Account<'info, TokenAccount>,
 
-    #[account(mint::authority = primary_wallet)]
     pub chill_mint: Account<'info, Mint>,
 
     pub system_program: Program<'info, System>,
@@ -65,9 +64,9 @@ pub struct CloseUserInfo<'info> {
 pub struct AddRewardTokens<'info> {
     pub primary_wallet: Signer<'info>,
 
-    pub token_authority: Signer<'info>,
+    pub token_account_authority: Signer<'info>,
 
-    #[account(mut, token::authority = token_authority, token::mint = staking_info.mint)]
+    #[account(mut, token::authority = token_account_authority, token::mint = staking_info.mint)]
     pub token_account: Account<'info, TokenAccount>,
 
     #[account(mut, has_one = primary_wallet)]
@@ -126,15 +125,17 @@ pub struct ViewUserRewardAmount<'info> {
 pub struct Stake<'info> {
     pub user: Signer<'info>,
 
+    pub token_account_authority: Signer<'info>,
+
     #[account(mut)]
     pub payer: Signer<'info>,
+
+    #[account(mut, token::authority = token_account_authority, token::mint = staking_info.mint)]
+    pub from_token_account: Account<'info, TokenAccount>,
 
     #[account(init_if_needed, payer = payer, space = UserInfo::LEN + DAYS_IN_WINDOW as usize,
               seeds = [staking_info.key().as_ref(), user.key().as_ref()], bump)]
     pub user_info: Account<'info, UserInfo>,
-
-    #[account(mut, token::mint = staking_info.mint)]
-    pub from_token_account: Account<'info, TokenAccount>,
 
     #[account(mut)]
     pub staking_info: Account<'info, StakingInfo>,

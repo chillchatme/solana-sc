@@ -18,12 +18,6 @@ pub struct Claim {
 }
 
 #[event]
-pub struct Unstake {
-    pub user: Pubkey,
-    pub amount: u64,
-}
-
-#[event]
 pub struct TransferRewardToPendingAmount {
     pub user: Pubkey,
     pub amount: u64,
