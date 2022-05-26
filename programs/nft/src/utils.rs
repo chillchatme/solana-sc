@@ -8,7 +8,7 @@ use anchor_lang::{
         borsh, error, Account, AccountInfo, CpiContext, Program, Rent, Result, Signer, System,
         SystemAccount, Sysvar,
     },
-    require, require_eq,
+    require, require_eq, require_keys_eq,
     solana_program::{entrypoint::ProgramResult, program::invoke},
     AccountDeserialize, AnchorDeserialize, AnchorSerialize, Key, ToAccountInfo,
 };
@@ -139,6 +139,8 @@ pub fn check_recipients(
 
     let mut owners = HashSet::with_capacity(recipients_token_accounts.len());
     for recipient in recipients_token_accounts {
+        require_keys_eq!(*recipient.owner, spl_token::ID, ErrorCode::IllegalOwner);
+
         let recipient_token_account =
             TokenAccount::try_deserialize(&mut recipient.data.borrow().as_ref())?;
 
@@ -176,6 +178,12 @@ pub fn calculate_amounts(
     amounts.push(0);
 
     for recipient_token_account in remaining_accounts.iter().skip(1) {
+        require_keys_eq!(
+            *recipient_token_account.owner,
+            spl_token::ID,
+            ErrorCode::IllegalOwner
+        );
+
         let token_account =
             TokenAccount::try_deserialize(&mut recipient_token_account.data.borrow().as_ref())?;
 
