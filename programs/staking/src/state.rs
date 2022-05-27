@@ -35,6 +35,7 @@ pub struct StakingInfo {
 
     pub reward_tokens_amount: u64,
     pub active_stakes_number: u64,
+    pub min_stake_size: u64,
 
     // Daily reward
     pub last_daily_reward: u64,
@@ -109,15 +110,14 @@ impl StakingInfo {
             return Ok(());
         }
 
-        let days_with_no_reward;
-        if self.last_update_day == 0 {
-            days_with_no_reward = current_day.checked_sub(self.start_day).unwrap();
+        let days_with_no_reward = if self.last_update_day == 0 {
+            current_day.checked_sub(self.start_day).unwrap()
         } else {
-            days_with_no_reward = current_day
+            current_day
                 .checked_sub(self.last_update_day)
                 .and_then(|v| v.checked_sub(DAYS_IN_WINDOW))
-                .unwrap_or(0);
-        }
+                .unwrap_or(0)
+        };
 
         let total_days = self.total_days();
         let unspent_amount = utils::calculate_unspent_amount_from_days_with_no_reward(

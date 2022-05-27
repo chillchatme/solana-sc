@@ -87,7 +87,7 @@ pub fn calculate_daily_staking_reward(
         .checked_mul(total_days)
         .unwrap();
 
-    let numerator = U256::from(reward_tokens_amount_x_total_days)
+    let numerator = reward_tokens_amount_x_total_days
         .checked_add(free_amount_x_total_days)
         .and_then(|v| v.checked_sub(max_rewarded_x_total_days))
         .unwrap();
@@ -95,7 +95,7 @@ pub fn calculate_daily_staking_reward(
     let daily_reward = numerator.checked_div(denomenator).unwrap().as_u64();
 
     let remaining_days_x_total_days = U256::from(remaining_days).checked_mul(total_days).unwrap();
-    let daily_unspent_reward = U256::from(free_amount_x_total_days)
+    let daily_unspent_reward = free_amount_x_total_days
         .checked_div(remaining_days_x_total_days)
         .unwrap()
         .as_u64();

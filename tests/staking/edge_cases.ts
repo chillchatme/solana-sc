@@ -35,11 +35,15 @@ describe("Staking simulation | Edge cases", () => {
   let tokenAccountAuthority: Keypair;
   let tokenAccount: PublicKey;
   let userInfoPubkey: PublicKey;
-  let startDay: number;
 
   const initialBalance = 200_000;
   const stakeAmount = 100_000;
+
   const totalDays = 10;
+  let startDay: number;
+  let startTime: BN;
+  let endTime: BN;
+  let minStakeSize: BN;
 
   let initializeAccounts: stakingUtils.InitializeAccounts;
   let stakeAccounts: stakingUtils.StakeAccounts;
@@ -55,13 +59,14 @@ describe("Staking simulation | Edge cases", () => {
         primaryWallet,
         initialBalance
       );
+
+    const currentTime = await utils.getCurrentTime();
+    startTime = new BN(currentTime + 5);
+    endTime = startTime.addn(totalDays * stakingUtils.SEC_IN_DAY);
+    minStakeSize = new BN(500);
   });
 
   it("Try to initialize after start day", async () => {
-    const currentTime = await utils.getCurrentTime();
-    const startTime = new BN(currentTime - 1);
-    const endTime = startTime.addn(totalDays * stakingUtils.SEC_IN_DAY);
-
     stakingTokenAuthority = await stakingUtils.getStakingAuthority(
       stakingInfoPubkey,
       program.programId
@@ -78,17 +83,20 @@ describe("Staking simulation | Edge cases", () => {
       stakingInfo: stakingInfoPubkey,
       stakingTokenAuthority,
       stakingTokenAccount,
-      chillMint,
+      mint: chillMint,
       rent: SYSVAR_RENT_PUBKEY,
       tokenProgram: TOKEN_PROGRAM_ID,
       associatedTokenProgram: ASSOCIATED_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     };
 
+    const currentTime = await utils.getCurrentTime();
+    const wrongStartTime = new BN(currentTime - 5);
+
     await assert.rejects(
       async () => {
         await program.methods
-          .initialize({ startTime, endTime })
+          .initialize({ startTime: wrongStartTime, endTime, minStakeSize })
           .accounts(initializeAccounts)
           .signers([primaryWallet, payer, stakingInfoKeypair])
           .rpc();
@@ -101,13 +109,9 @@ describe("Staking simulation | Edge cases", () => {
   });
 
   it("Try to initialize with endDay <= startDay", async () => {
-    const currentTime = await utils.getCurrentTime();
-    const startTime = new BN(currentTime + 5);
-    const endTime = startTime.addn(totalDays * 3);
-
     await assert.rejects(async () => {
       await program.methods
-        .initialize({ startTime: endTime, endTime: startTime })
+        .initialize({ startTime: endTime, endTime: startTime, minStakeSize })
         .accounts(initializeAccounts)
         .signers([primaryWallet, payer, stakingInfoKeypair])
         .rpc();
@@ -115,12 +119,8 @@ describe("Staking simulation | Edge cases", () => {
   });
 
   it("Initialize", async () => {
-    const currentTime = await utils.getCurrentTime();
-    const startTime = new BN(currentTime + 5);
-    const endTime = startTime.addn(totalDays * 3);
-
     await program.methods
-      .initialize({ startTime, endTime })
+      .initialize({ startTime, endTime, minStakeSize })
       .accounts(initializeAccounts)
       .signers([primaryWallet, payer, stakingInfoKeypair])
       .rpc();
@@ -133,19 +133,16 @@ describe("Staking simulation | Edge cases", () => {
     expectedStakingInfo.mint = chillMint;
     expectedStakingInfo.startDay = stakingInfo.startDay;
     expectedStakingInfo.endDay = stakingInfo.startDay.addn(totalDays);
+    expectedStakingInfo.minStakeSize = minStakeSize;
 
     startDay = stakingInfo.startDay.toNumber();
     stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);
   });
 
   it("Try to initialize twice", async () => {
-    const currentTime = await utils.getCurrentTime();
-    const startTime = new BN(currentTime + 5);
-    const endTime = startTime.addn(3 * totalDays);
-
     await assert.rejects(async () => {
       await program.methods
-        .initialize({ startTime, endTime })
+        .initialize({ startTime, endTime, minStakeSize })
         .accounts(initializeAccounts)
         .signers([primaryWallet, payer, stakingInfoKeypair])
         .rpc();
@@ -259,6 +256,22 @@ describe("Staking simulation | Edge cases", () => {
       },
       (err: AnchorError) => {
         assert.equal(err.error.errorCode.code, "StakeZeroTokens");
+        return true;
+      }
+    );
+  });
+
+  it("Try to stake small amount of tokens", async () => {
+    await assert.rejects(
+      async () => {
+        await program.methods
+          .stake(minStakeSize.subn(1))
+          .accounts(stakeAccounts)
+          .signers([user, payer, tokenAccountAuthority])
+          .rpc();
+      },
+      (err: AnchorError) => {
+        assert.equal(err.error.errorCode.code, "SmallStakeSize");
         return true;
       }
     );

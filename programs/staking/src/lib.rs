@@ -18,6 +18,7 @@ declare_id!("7EbJfNdsRx1VgHbQgFCZsZZJBm2eDQC3PkKxTSjiabHm");
 pub struct InitializeArgs {
     pub start_time: u64,
     pub end_time: u64,
+    pub min_stake_size: u64,
 }
 
 impl InitializeArgs {
@@ -96,7 +97,8 @@ pub mod chill_staking {
         );
 
         staking_info.primary_wallet = ctx.accounts.primary_wallet.key();
-        staking_info.mint = ctx.accounts.chill_mint.key();
+        staking_info.mint = ctx.accounts.mint.key();
+        staking_info.min_stake_size = args.min_stake_size;
         staking_info.start_day = start_day;
         staking_info.end_day = end_day;
 
@@ -228,6 +230,12 @@ pub mod chill_staking {
             user_info.staked_amount,
             0,
             StakingErrorCode::StakeZeroTokens
+        );
+
+        require_gte!(
+            user_info.staked_amount,
+            staking_info.min_stake_size,
+            StakingErrorCode::SmallStakeSize
         );
 
         staking_info.update_daily_reward()?;
@@ -450,6 +458,9 @@ pub enum StakingErrorCode {
 
     #[msg("Staking must start in the future")]
     StakingMustStartInFuture,
+
+    #[msg("Small stake size")]
+    SmallStakeSize,
 
     #[msg("End day must be bigger then start day")]
     EndDayMustBeBiggerThanStartDay,

@@ -22,10 +22,10 @@ pub struct Initialize<'info> {
     #[account(init, payer = payer, space = StakingTokenAuthority::LEN, seeds = [staking_info.key().as_ref()], bump)]
     pub staking_token_authority: Account<'info, StakingTokenAuthority>,
 
-    #[account(init, payer = payer, associated_token::mint = chill_mint, associated_token::authority = staking_token_authority)]
+    #[account(init, payer = payer, associated_token::mint = mint, associated_token::authority = staking_token_authority)]
     pub staking_token_account: Account<'info, TokenAccount>,
 
-    pub chill_mint: Account<'info, Mint>,
+    pub mint: Account<'info, Mint>,
 
     pub system_program: Program<'info, System>,
 

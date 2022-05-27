@@ -51,6 +51,7 @@ export function getDefaultStakingInfo(): StakingInfo {
     lastDailyReward: new BN(0),
     lastUpdateDay: new BN(0),
     mint: PublicKey.default,
+    minStakeSize: new BN(0),
     primaryWallet: PublicKey.default,
     rewardTokensAmount: new BN(0),
     rewardedUnspentAmount: new BN(0),
@@ -192,16 +193,17 @@ export async function initializeStaking(
   const currentTime = await getCurrentTime();
   const startTime = new BN(currentTime + 5);
   const endTime = startTime.addn(totalDays * SEC_IN_DAY);
+  const minStakeSize = new BN(0);
 
   await program.methods
-    .initialize({ startTime, endTime })
+    .initialize({ startTime, endTime, minStakeSize })
     .accounts({
       primaryWallet: primaryWallet.publicKey,
       payer: payer.publicKey,
       stakingInfo: stakingInfoPubkey,
       stakingTokenAuthority,
       stakingTokenAccount,
-      chillMint,
+      mint: chillMint,
       rent: SYSVAR_RENT_PUBKEY,
       tokenProgram: TOKEN_PROGRAM_ID,
       associatedTokenProgram: ASSOCIATED_PROGRAM_ID,
