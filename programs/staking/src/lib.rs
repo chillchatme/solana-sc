@@ -45,7 +45,7 @@ pub mod chill_staking {
         let user_info = &mut ctx.accounts.user_info;
         let staking_info = &mut ctx.accounts.staking_info;
 
-        utils::update_user_reward(user_info, staking_info)?;
+        utils::update_state_accounts(user_info, staking_info)?;
 
         Ok(user_info.rewarded_amount)
     }
@@ -62,7 +62,8 @@ pub mod chill_staking {
 
     pub fn view_daily_staking_reward(ctx: Context<ViewStaking>) -> Result<u64> {
         let staking_info = &mut ctx.accounts.staking_info;
-        staking_info.daily_staking_reward()
+        staking_info.update_daily_reward()?;
+        Ok(staking_info.last_daily_reward)
     }
 
     pub fn view_boosted_days_list(ctx: Context<ViewUser>) -> Result<Vec<bool>> {
@@ -191,7 +192,7 @@ pub mod chill_staking {
 
         staking_info.assert_active()?;
 
-        utils::update_user_reward(user_info, staking_info)?;
+        utils::update_state_accounts(user_info, staking_info)?;
 
         let bump = ctx.bumps["user_info"];
         user_info.user = ctx.accounts.user.key();
@@ -229,7 +230,8 @@ pub mod chill_staking {
             StakingErrorCode::StakeZeroTokens
         );
 
-        user_info.daily_staking_reward = staking_info.daily_staking_reward()?;
+        staking_info.update_daily_reward()?;
+        user_info.daily_staking_reward = staking_info.last_daily_reward;
         user_info.start_day = Some(utils::current_day()?);
         user_info.total_staked_amount = user_info
             .total_staked_amount
@@ -265,7 +267,7 @@ pub mod chill_staking {
         let user_info = &mut ctx.accounts.user_info;
         let staking_info = &mut ctx.accounts.staking_info;
 
-        utils::update_user_reward(user_info, staking_info)?;
+        utils::update_state_accounts(user_info, staking_info)?;
 
         require!(
             user_info.has_active_stake(),
@@ -273,7 +275,7 @@ pub mod chill_staking {
         );
 
         let boosted_days = user_info.get_vector()?;
-        let boost_amount = (0..DAYS_IN_WINDOW)
+        let boost_number = (0..DAYS_IN_WINDOW)
             .map(|day| boosted_days.get(day as usize).unwrap() as u64)
             .sum();
 
@@ -300,16 +302,18 @@ pub mod chill_staking {
             .checked_sub(user_info.staked_amount)
             .unwrap();
 
-        staking_info.total_boost_amount = staking_info
-            .total_boost_amount
-            .checked_sub(boost_amount)
+        staking_info.total_boost_number = staking_info
+            .total_boost_number
+            .checked_sub(boost_number)
             .unwrap();
+
+        staking_info.total_cancel_number = staking_info.total_cancel_number.checked_add(1).unwrap();
 
         user_info.start_day = None;
 
-        user_info.total_boost_amount = user_info
-            .total_boost_amount
-            .checked_sub(boost_amount)
+        user_info.total_boost_number = user_info
+            .total_boost_number
+            .checked_sub(boost_number)
             .unwrap();
 
         user_info.total_staked_amount = user_info
@@ -337,7 +341,7 @@ pub mod chill_staking {
         let user_info = &mut ctx.accounts.user_info;
         let staking_info = &mut ctx.accounts.staking_info;
 
-        utils::update_user_reward(user_info, staking_info)?;
+        utils::update_state_accounts(user_info, staking_info)?;
 
         let total_amount = user_info
             .rewarded_amount
@@ -382,7 +386,7 @@ pub mod chill_staking {
         let staking_info = &mut ctx.accounts.staking_info;
         staking_info.assert_active()?;
 
-        utils::update_user_reward(user_info, staking_info)?;
+        utils::update_state_accounts(user_info, staking_info)?;
 
         require_gte!(
             user_info.rewarded_amount,
@@ -405,7 +409,7 @@ pub mod chill_staking {
         let user_info = &mut ctx.accounts.user_info;
         let staking_info = &mut ctx.accounts.staking_info;
 
-        utils::update_user_reward(user_info, staking_info)?;
+        utils::update_state_accounts(user_info, staking_info)?;
 
         require!(
             user_info.has_active_stake(),
@@ -425,8 +429,8 @@ pub mod chill_staking {
         );
         boosted_days.set(index, &true)?;
 
-        user_info.total_boost_amount = user_info.total_boost_amount.checked_add(1).unwrap();
-        staking_info.total_boost_amount = staking_info.total_boost_amount.checked_add(1).unwrap();
+        user_info.total_boost_number = user_info.total_boost_number.checked_add(1).unwrap();
+        staking_info.total_boost_number = staking_info.total_boost_number.checked_add(1).unwrap();
 
         emit!(event::Boost {
             user: ctx.accounts.user.key()

@@ -41,13 +41,13 @@ pub fn current_day() -> Result<u64> {
     Ok(timestamp.checked_div(SEC_PER_DAY).unwrap())
 }
 
-pub fn calculate_unspent_amount_from_days_without_stake(
-    days_without_stake: u64,
+pub fn calculate_unspent_amount_from_days_with_no_reward(
+    days_with_no_reward: u64,
     total_days: u64,
     reward_tokens_amount: u64,
 ) -> u64 {
     U256::from(reward_tokens_amount)
-        .checked_mul(days_without_stake.into())
+        .checked_mul(days_with_no_reward.into())
         .and_then(|v| v.checked_div(total_days.into()))
         .unwrap()
         .as_u64()
@@ -182,12 +182,11 @@ pub fn calculate_user_reward_with_unspent_rewards(
     Ok((reward, remainings))
 }
 
-pub fn update_user_reward(
+pub fn update_state_accounts(
     user_info: &mut Account<UserInfo>,
     staking_info: &mut Account<StakingInfo>,
 ) -> Result<()> {
     let user_has_ended_stake = user_info.has_ended_stake(staking_info.end_day)?;
-
     if !user_has_ended_stake {
         return Ok(());
     }

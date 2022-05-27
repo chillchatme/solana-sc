@@ -60,7 +60,7 @@ describe("Staking simulation | Edge cases", () => {
   it("Try to initialize after start day", async () => {
     const currentTime = await utils.getCurrentTime();
     const startTime = new BN(currentTime - 1);
-    const endTime = startTime.addn(totalDays * 3);
+    const endTime = startTime.addn(totalDays * stakingUtils.SEC_IN_DAY);
 
     stakingTokenAuthority = await stakingUtils.getStakingAuthority(
       stakingInfoPubkey,
@@ -350,8 +350,8 @@ describe("Staking simulation | Edge cases", () => {
       stakingInfoPubkey
     );
 
-    expectedUserInfo.totalBoostAmount = new BN(1);
-    expectedStakingInfo.totalBoostAmount = new BN(1);
+    expectedUserInfo.totalBoostNumber = new BN(1);
+    expectedStakingInfo.totalBoostNumber = new BN(1);
 
     stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);
     stakingUtils.assertUserInfoEqual(userInfo, expectedUserInfo);
@@ -647,7 +647,7 @@ describe("Staking simulation | Edge cases", () => {
     expectedUserInfo.totalStakedAmount = new BN(20_100_000);
 
     expectedStakingInfo.activeStakesNumber = new BN(1);
-    expectedStakingInfo.totalDaysWithoutStake = new BN(1);
+    expectedStakingInfo.totalDaysWithNoReward = new BN(1);
     expectedStakingInfo.totalUnspentAmount = new BN(40_000_000);
     expectedStakingInfo.lastUpdateDay = new BN(startDay + 8);
     expectedStakingInfo.lastDailyReward = new BN(15_000_000);

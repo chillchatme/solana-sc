@@ -61,17 +61,13 @@ describe("Staking simulation | No stakes", () => {
     });
   }
 
-  it("Try to get daily reward when staking is finished", async () => {
-    const stakingInfo = await program.account.stakingInfo.fetch(
+  it("Day " + totalDays.toString(), async () => {
+    await stakingUtils.waitUntil(program, startDay + totalDays);
+    const dailyReward = await stakingUtils.getDailyRewardFromSimulation(
+      program,
       stakingInfoPubkey
     );
 
-    await assert.rejects(async () => {
-      await stakingUtils.waitUntil(program, stakingInfo.endDay.toNumber());
-      await stakingUtils.getDailyRewardFromSimulation(
-        program,
-        stakingInfoPubkey
-      );
-    });
+    assert.equal(dailyReward.toNumber(), 0);
   });
 });

@@ -19,6 +19,8 @@ import {
   mintTokens,
 } from "../utils";
 
+export const SEC_IN_DAY = 3;
+
 export type StakingInfo = TypeDef<
   ChillStaking["accounts"][1],
   ChillStaking["accounts"][number]
@@ -43,22 +45,23 @@ export type ClaimAccounts = Accounts<
 
 export function getDefaultStakingInfo(): StakingInfo {
   return {
-    primaryWallet: PublicKey.default,
-    mint: PublicKey.default,
-    startDay: new BN(0),
+    activeStakesNumber: new BN(0),
+    dailyUnspentReward: new BN(0),
     endDay: new BN(0),
     lastDailyReward: new BN(0),
     lastUpdateDay: new BN(0),
-    totalUnspentAmount: new BN(0),
-    dailyUnspentReward: new BN(0),
-    rewardedUnspentAmount: new BN(0),
-    totalDaysWithoutStake: new BN(0),
-    activeStakesNumber: new BN(0),
+    mint: PublicKey.default,
+    primaryWallet: PublicKey.default,
     rewardTokensAmount: new BN(0),
-    totalBoostAmount: new BN(0),
+    rewardedUnspentAmount: new BN(0),
+    startDay: new BN(0),
+    totalBoostNumber: new BN(0),
+    totalCancelNumber: new BN(0),
+    totalDaysWithNoReward: new BN(0),
+    totalRewardedAmount: new BN(0),
     totalStakedAmount: new BN(0),
     totalStakesNumber: new BN(0),
-    totalRewardedAmount: new BN(0),
+    totalUnspentAmount: new BN(0),
   };
 }
 
@@ -74,7 +77,7 @@ export function getDefaultUserInfo(): UserInfo {
     rewardedAmount: new BN(0),
     totalStakedAmount: new BN(0),
     totalRewardedAmount: new BN(0),
-    totalBoostAmount: new BN(0),
+    totalBoostNumber: new BN(0),
   };
 }
 
@@ -83,41 +86,43 @@ export function assertStakingInfoEqual(
   expectedStakingInfo: StakingInfo
 ) {
   const tmpStakingInfo = {
-    primaryWallet: stakingInfo.primaryWallet,
-    mint: stakingInfo.mint,
-    startDay: stakingInfo.startDay,
+    activeStakesNumber: stakingInfo.activeStakesNumber,
+    dailyUnspentReward: stakingInfo.dailyUnspentReward,
     endDay: stakingInfo.endDay,
     lastDailyReward: stakingInfo.lastDailyReward,
     lastUpdateDay: stakingInfo.lastUpdateDay,
-    totalUnspentAmount: stakingInfo.totalUnspentAmount,
-    dailyUnspentReward: stakingInfo.dailyUnspentReward,
-    rewardedUnspentAmount: stakingInfo.rewardedUnspentAmount,
-    totalDaysWithoutStake: stakingInfo.totalDaysWithoutStake,
-    activeStakesNumber: stakingInfo.activeStakesNumber,
+    mint: stakingInfo.mint,
+    primaryWallet: stakingInfo.primaryWallet,
     rewardTokensAmount: stakingInfo.rewardTokensAmount,
-    totalBoostAmount: stakingInfo.totalBoostAmount,
+    rewardedUnspentAmount: stakingInfo.rewardedUnspentAmount,
+    startDay: stakingInfo.startDay,
+    totalBoostNumber: stakingInfo.totalBoostNumber,
+    totalDaysWithNoReward: stakingInfo.totalDaysWithNoReward,
+    totalCancelNumber: stakingInfo.totalCancelNumber,
+    totalRewardedAmount: stakingInfo.totalRewardedAmount,
     totalStakedAmount: stakingInfo.totalStakedAmount,
     totalStakesNumber: stakingInfo.totalStakesNumber,
-    totalRewardedAmount: stakingInfo.totalRewardedAmount,
+    totalUnspentAmount: stakingInfo.totalUnspentAmount,
   };
 
   const tmpExptectedStakingInfo = {
-    primaryWallet: expectedStakingInfo.primaryWallet,
-    mint: expectedStakingInfo.mint,
-    startDay: expectedStakingInfo.startDay,
+    activeStakesNumber: expectedStakingInfo.activeStakesNumber,
+    dailyUnspentReward: expectedStakingInfo.dailyUnspentReward,
     endDay: expectedStakingInfo.endDay,
     lastDailyReward: expectedStakingInfo.lastDailyReward,
     lastUpdateDay: expectedStakingInfo.lastUpdateDay,
-    totalUnspentAmount: expectedStakingInfo.totalUnspentAmount,
-    dailyUnspentReward: expectedStakingInfo.dailyUnspentReward,
-    rewardedUnspentAmount: expectedStakingInfo.rewardedUnspentAmount,
-    totalDaysWithoutStake: expectedStakingInfo.totalDaysWithoutStake,
-    activeStakesNumber: expectedStakingInfo.activeStakesNumber,
+    mint: expectedStakingInfo.mint,
+    primaryWallet: expectedStakingInfo.primaryWallet,
     rewardTokensAmount: expectedStakingInfo.rewardTokensAmount,
-    totalBoostAmount: expectedStakingInfo.totalBoostAmount,
+    rewardedUnspentAmount: expectedStakingInfo.rewardedUnspentAmount,
+    startDay: expectedStakingInfo.startDay,
+    totalBoostNumber: expectedStakingInfo.totalBoostNumber,
+    totalDaysWithNoReward: expectedStakingInfo.totalDaysWithNoReward,
+    totalCancelNumber: expectedStakingInfo.totalCancelNumber,
+    totalRewardedAmount: expectedStakingInfo.totalRewardedAmount,
     totalStakedAmount: expectedStakingInfo.totalStakedAmount,
     totalStakesNumber: expectedStakingInfo.totalStakesNumber,
-    totalRewardedAmount: expectedStakingInfo.totalRewardedAmount,
+    totalUnspentAmount: expectedStakingInfo.totalUnspentAmount,
   };
 
   assert.equal(
@@ -141,7 +146,7 @@ export function assertUserInfoEqual(
     rewardedAmount: userInfo.rewardedAmount,
     totalStakedAmount: userInfo.totalStakedAmount,
     totalRewardedAmount: userInfo.totalRewardedAmount,
-    totalBoostAmount: userInfo.totalBoostAmount,
+    totalBoostNumber: userInfo.totalBoostNumber,
   };
 
   const tmpExpectedUserInfo = {
@@ -155,7 +160,7 @@ export function assertUserInfoEqual(
     rewardedAmount: expectedUserInfo.rewardedAmount,
     totalStakedAmount: expectedUserInfo.totalStakedAmount,
     totalRewardedAmount: expectedUserInfo.totalRewardedAmount,
-    totalBoostAmount: expectedUserInfo.totalBoostAmount,
+    totalBoostNumber: expectedUserInfo.totalBoostNumber,
   };
 
   assert.equal(
@@ -186,7 +191,7 @@ export async function initializeStaking(
 
   const currentTime = await getCurrentTime();
   const startTime = new BN(currentTime + 5);
-  const endTime = startTime.addn(totalDays * 3);
+  const endTime = startTime.addn(totalDays * SEC_IN_DAY);
 
   await program.methods
     .initialize({ startTime, endTime })
@@ -288,7 +293,9 @@ export async function pause(ms: number): Promise<void> {
 export async function getCurrentDay(
   program: Program<ChillStaking>
 ): Promise<BN> {
-  return await program.methods.viewCurrentDayNumber().view();
+  return await program.methods.viewCurrentDayNumber().view({
+    skipPreflight: true,
+  });
 }
 
 export async function getDailyRewardFromSimulation(
@@ -306,6 +313,14 @@ export async function getUserRewardFromSimulation(
   userInfo: PublicKey,
   stakingInfo: PublicKey
 ): Promise<BN> {
+  await program.methods
+    .viewUserRewardAmount()
+    .accounts({
+      userInfo,
+      stakingInfo,
+    })
+    .rpc({ skipPreflight: true });
+
   const info = await program.methods
     .viewUserRewardAmount()
     .accounts({
@@ -327,7 +342,7 @@ export async function waitUntil(
   }
 
   let currentDay = await getCurrentDay(program);
-  while (currentDay < day) {
+  while (currentDay.toNumber() < day) {
     await pause(ms);
     currentDay = await getCurrentDay(program);
   }
@@ -338,9 +353,9 @@ export async function waitForSomeDays(
   days: number,
   ms?: number
 ): Promise<void> {
-  const currentDay = await program.methods.viewCurrentDayNumber().view();
-  const expectedDay = currentDay + days;
-  await waitUntil(program, expectedDay, ms);
+  const currentDay = await getCurrentDay(program);
+  const expectedDay = currentDay.addn(days);
+  await waitUntil(program, expectedDay.toNumber(), ms);
 }
 
 export async function waitForDay(

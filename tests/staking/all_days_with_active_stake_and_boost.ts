@@ -43,58 +43,43 @@ describe("Staking simulation | All days with active stake and boost", () => {
   let secondStakeAccounts: stakingUtils.StakeAccounts;
   let thirdStakeAccounts: stakingUtils.StakeAccounts;
 
-  async function firstBoost() {
+  async function boost(
+    user: Keypair,
+    userInfoPubkey: PublicKey,
+    expectedUserInfo: stakingUtils.UserInfo
+  ) {
     await program.methods
       .boost()
       .accounts({
-        user: firstUser.publicKey,
-        userInfo: firstUserInfoPubkey,
+        user: user.publicKey,
+        userInfo: userInfoPubkey,
         stakingInfo: stakingInfoPubkey,
       })
-      .signers([firstUser])
+      .signers([user])
       .rpc();
 
-    expectedFirstUserInfo.totalBoostAmount =
-      expectedFirstUserInfo.totalBoostAmount.addn(1);
+    expectedUserInfo.totalBoostNumber.iaddn(1);
+    expectedStakingInfo.totalBoostNumber.iaddn(1);
 
-    expectedStakingInfo.totalBoostAmount =
-      expectedStakingInfo.totalBoostAmount.addn(1);
+    const userInfo = await program.account.userInfo.fetch(userInfoPubkey);
+    const stakingInfo = await program.account.stakingInfo.fetch(
+      stakingInfoPubkey
+    );
+
+    stakingUtils.assertUserInfoEqual(userInfo, expectedUserInfo);
+    stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);
+  }
+
+  async function firstBoost() {
+    await boost(firstUser, firstUserInfoPubkey, expectedFirstUserInfo);
   }
 
   async function secondBoost() {
-    await program.methods
-      .boost()
-      .accounts({
-        user: secondUser.publicKey,
-        userInfo: secondUserInfoPubkey,
-        stakingInfo: stakingInfoPubkey,
-      })
-      .signers([secondUser])
-      .rpc();
-
-    expectedSecondUserInfo.totalBoostAmount =
-      expectedSecondUserInfo.totalBoostAmount.addn(1);
-
-    expectedStakingInfo.totalBoostAmount =
-      expectedStakingInfo.totalBoostAmount.addn(1);
+    await boost(secondUser, secondUserInfoPubkey, expectedSecondUserInfo);
   }
 
   async function thirdBoost() {
-    await program.methods
-      .boost()
-      .accounts({
-        user: thirdUser.publicKey,
-        userInfo: thirdUserInfoPubkey,
-        stakingInfo: stakingInfoPubkey,
-      })
-      .signers([thirdUser])
-      .rpc();
-
-    expectedThirdUserInfo.totalBoostAmount =
-      expectedThirdUserInfo.totalBoostAmount.addn(1);
-
-    expectedStakingInfo.totalBoostAmount =
-      expectedStakingInfo.totalBoostAmount.addn(1);
+    await boost(thirdUser, thirdUserInfoPubkey, expectedThirdUserInfo);
   }
 
   before(async () => {

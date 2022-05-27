@@ -197,6 +197,8 @@ describe("Staking simulation | Staking with cancellation", () => {
   });
 
   it("Day 1", async () => {
+    await stakingUtils.waitUntil(program, startDay + 1);
+
     await program.methods
       .stake(new BN(20_000))
       .accounts(firstStakeAccounts)
@@ -218,6 +220,8 @@ describe("Staking simulation | Staking with cancellation", () => {
   });
 
   it("Day 2", async () => {
+    await stakingUtils.waitUntil(program, startDay + 2);
+
     await program.methods
       .boost()
       .accounts({
@@ -250,9 +254,9 @@ describe("Staking simulation | Staking with cancellation", () => {
       secondUserInfoPubkey
     );
 
-    expectedFirstUserInfo.totalBoostAmount = new BN(1);
-    expectedSecondUserInfo.totalBoostAmount = new BN(1);
-    expectedStakingInfo.totalBoostAmount = new BN(2);
+    expectedFirstUserInfo.totalBoostNumber = new BN(1);
+    expectedSecondUserInfo.totalBoostNumber = new BN(1);
+    expectedStakingInfo.totalBoostNumber = new BN(2);
 
     stakingUtils.assertUserInfoEqual(firstUserInfo, expectedFirstUserInfo);
     stakingUtils.assertUserInfoEqual(secondUserInfo, expectedSecondUserInfo);
@@ -260,6 +264,8 @@ describe("Staking simulation | Staking with cancellation", () => {
   });
 
   it("Day 3", async () => {
+    await stakingUtils.waitUntil(program, startDay + 3);
+
     await program.methods
       .cancel()
       .accounts({
@@ -281,13 +287,14 @@ describe("Staking simulation | Staking with cancellation", () => {
     expectedFirstUserInfo.pendingAmount = new BN(40_000);
     expectedFirstUserInfo.stakedAmount = new BN(0);
     expectedFirstUserInfo.startDay = null;
-    expectedFirstUserInfo.totalBoostAmount = new BN(0);
+    expectedFirstUserInfo.totalBoostNumber = new BN(0);
     expectedFirstUserInfo.totalStakedAmount = new BN(0);
 
     expectedStakingInfo.activeStakesNumber = new BN(1);
-    expectedStakingInfo.totalBoostAmount = new BN(1);
+    expectedStakingInfo.totalBoostNumber = new BN(1);
     expectedStakingInfo.totalStakedAmount = new BN(20_000);
     expectedStakingInfo.totalStakesNumber = new BN(1);
+    expectedStakingInfo.totalCancelNumber = new BN(1);
 
     stakingUtils.assertUserInfoEqual(firstUserInfo, expectedFirstUserInfo);
     stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);
