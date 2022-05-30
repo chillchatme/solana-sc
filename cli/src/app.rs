@@ -423,14 +423,14 @@ impl App<'_> {
         let staking_info = Keypair::new();
         println!("{} {}", "StakingInfo:".green(), staking_info.pubkey());
 
-        let signature = self.client.allocate_staking(
+        let signature = self.client.staking_initialize(
             &staking_info,
-            payer.clone(),
-            args.total_days(),
+            primary_wallet,
+            payer,
+            mint,
+            args,
             program_id,
         )?;
-
-        self.print_signature(&signature);
 
         let file_name = "staking_info.pubkey";
         let mut file = fs::OpenOptions::new()
@@ -440,16 +440,6 @@ impl App<'_> {
 
         writeln!(file, "{}", staking_info.pubkey())
             .map_err(|_| CliError::CannotWriteToFile(file_name.to_owned()))?;
-
-        println!("\n{}", "Initialization...".green());
-        let signature = self.client.staking_initialize(
-            staking_info.pubkey(),
-            primary_wallet,
-            payer,
-            mint,
-            args,
-            program_id,
-        )?;
 
         self.print_signature(&signature);
 

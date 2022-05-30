@@ -609,6 +609,7 @@ impl Client {
             .map_err(Into::into)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn withdraw_ft(
         &self,
         payer: Rc<dyn Signer>,
@@ -677,15 +678,22 @@ impl Client {
             .map_err(Into::into)
     }
 
-    pub fn allocate_staking(
+    pub fn staking_initialize(
         &self,
         staking_info: &Keypair,
+        primary_wallet: Rc<dyn Signer>,
         payer: Rc<dyn Signer>,
-        total_days: usize,
+        mint: Pubkey,
+        args: StakingInitializeArgs,
         program_id: Pubkey,
     ) -> Result<Signature> {
-        let space = StakingInfo::LEN + total_days * 8;
+        let program = self.program(payer.clone(), program_id)?;
 
+        let staking_token_authority =
+            pda::staking_token_authority(staking_info.pubkey(), program_id);
+        let staking_token_account = get_associated_token_address(&staking_token_authority, &mint);
+
+        let space = StakingInfo::LEN + args.total_days() * 8;
         let lamports = self
             .rpc_client
             .get_minimum_balance_for_rent_exemption(space)?;
@@ -698,30 +706,13 @@ impl Client {
             &program_id,
         );
 
-        self.run_transaction(&[ix], payer.pubkey(), &[payer.as_ref(), staking_info])
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn staking_initialize(
-        &self,
-        staking_info: Pubkey,
-        primary_wallet: Rc<dyn Signer>,
-        payer: Rc<dyn Signer>,
-        mint: Pubkey,
-        args: StakingInitializeArgs,
-        program_id: Pubkey,
-    ) -> Result<Signature> {
-        let program = self.program(payer.clone(), program_id)?;
-        let staking_token_authority = pda::staking_token_authority(staking_info, program_id);
-        let staking_token_account = get_associated_token_address(&staking_token_authority, &mint);
-
         program
             .request()
             .args(chill_staking::instruction::Initialize { args })
             .accounts(chill_staking::accounts::Initialize {
                 primary_wallet: primary_wallet.pubkey(),
                 payer: payer.pubkey(),
-                staking_info,
+                staking_info: staking_info.pubkey(),
                 staking_token_authority,
                 staking_token_account,
                 mint,
@@ -730,7 +721,9 @@ impl Client {
                 token_program: spl_token::ID,
                 associated_token_program: associated_token::ID,
             })
+            .instruction(ix)
             .signer(primary_wallet.as_ref())
+            .signer(staking_info)
             .send()
             .map_err(Into::into)
     }
