@@ -13,9 +13,9 @@ use clap::{
 };
 use lazy_static::lazy_static;
 use solana_clap_utils::{
-    input_parsers::{pubkey_of, pubkeys_of},
+    input_parsers::{pubkey_of, pubkeys_of, unix_timestamp_from_rfc3339_datetime},
     input_validators::{
-        is_pubkey, is_pubkey_or_keypair, is_url_or_moniker, is_valid_signer,
+        is_pubkey, is_pubkey_or_keypair, is_rfc3339_datetime, is_url_or_moniker, is_valid_signer,
         normalize_to_url_if_moniker,
     },
     keypair::signer_from_path,
@@ -43,11 +43,17 @@ const COMMAND_WITHDRAW_FT: &str = "withdraw-ft";
 const COMMAND_WITHDRAW_LAMPORTS: &str = "withdraw-lamports";
 const COMMAND_WITHDRAW_NFT: &str = "withdraw-nft";
 
+const COMMAND_STAKING: &str = "staking";
+const COMMAND_ADD_REWARD_TOKENS: &str = "add-reward-tokens";
+const COMMAND_STAKING_INITIALIZE: &str = "staking-initialize";
+const COMMAND_STAKING_ADD_REWARD_TOKENS: &str = "staking-add-reward-tokens";
+
 const ACCOUNT: &str = "account";
 const AMOUNT: &str = "amount";
 const AUTHORITY: &str = "authority";
 const CREATOR: &str = "creator";
 const DECIMALS: &str = "decimals";
+const END_TIMESTAMP: &str = "end";
 const FEES: &str = "fees";
 const FEES_CHARACTER: &str = "character";
 const FEES_EMOTE: &str = "emote";
@@ -57,6 +63,7 @@ const FEES_TILESET: &str = "tileset";
 const FEES_WORLD: &str = "world";
 const MINT: &str = "mint-address";
 const MINT_SHARE: &str = "mint-share";
+const MIN_STAKE_SIZE: &str = "min-stake-size";
 const NAME: &str = "name";
 const NFT_TYPE: &str = "type";
 const PAYER: &str = "payer";
@@ -64,6 +71,8 @@ const PRIMARY_WALLET: &str = "primary-wallet";
 const RECIPIENT: &str = "recipient";
 const RPC_URL: &str = "url";
 const SAVE_PATH: &str = "save-path";
+const STAKING_INFO: &str = "staking-info";
+const START_TIMESTAMP: &str = "start";
 const SYMBOL: &str = "symbol";
 const TRANSACTION_SHARE: &str = "transaction-share";
 const URI: &str = "uri";
@@ -75,10 +84,12 @@ pub enum CliCommand {
     Initialize,
     Mint,
     MintNft,
-    UpdateNft,
+    StakingAddRewardTokens,
+    StakingInitialize,
     Transfer,
-    WithdrawLamports,
+    UpdateNft,
     WithdrawFt,
+    WithdrawLamports,
     WithdrawNft,
 }
 
@@ -485,11 +496,71 @@ impl<'a> Cli<'a> {
             .about("Withdraws NFT from proxy wallet")
             .after_help(account_address_help);
 
+        //
+        // Staking
+        //
+
+        let start_timestamp = Arg::with_name(START_TIMESTAMP)
+            .long(START_TIMESTAMP)
+            .short("s")
+            .required(true)
+            .takes_value(true)
+            .value_name("TIMESTAMP")
+            .validator(is_rfc3339_datetime)
+            .help("Staking start time");
+
+        let end_timestamp = Arg::with_name(END_TIMESTAMP)
+            .long(END_TIMESTAMP)
+            .short("e")
+            .required(true)
+            .takes_value(true)
+            .value_name("TIMESTAMP")
+            .validator(is_rfc3339_datetime)
+            .help("Staking end time");
+
+        let staking_info = Arg::with_name(STAKING_INFO)
+            .required(true)
+            .takes_value(true)
+            .value_name("PUBKEY")
+            .validator(is_pubkey)
+            .help("StakingInfo pubkey");
+
+        let min_stake_size = Arg::with_name(MIN_STAKE_SIZE)
+            .long(MIN_STAKE_SIZE)
+            .required(true)
+            .takes_value(true)
+            .value_name("SOL")
+            .default_value("0")
+            .help("Minimum stake size");
+
+        let staking_initialize_command = SubCommand::with_name(COMMAND_INITIALIZE)
+            .args(&[
+                primary_wallet.clone(),
+                mint.clone(),
+                payer.clone(),
+                min_stake_size,
+                start_timestamp,
+                end_timestamp,
+            ])
+            .about("Initializes staking")
+            .after_help(account_address_help);
+
+        let staking_add_reward_tokens = SubCommand::with_name(COMMAND_ADD_REWARD_TOKENS)
+            .args(&[primary_wallet, mint, payer, amount_transfer, staking_info])
+            .about("Adds reward tokens to staking")
+            .after_help(account_address_help);
+
+        let staking_command = SubCommand::with_name(COMMAND_STAKING)
+            .about("Manages staking")
+            .setting(AppSettings::SubcommandRequiredElseHelp)
+            .subcommands(vec![staking_initialize_command, staking_add_reward_tokens]);
+
         App::new(crate_name!())
             .about(crate_description!())
             .version(crate_version!())
             .arg(rpc)
             .subcommands(vec![
+                staking_command,
                 balance_command,
                 info_command,
                 initialize_command,
@@ -518,6 +589,13 @@ impl<'a> Cli<'a> {
             (COMMAND_WITHDRAW_FT, Some(matcher)) => (COMMAND_WITHDRAW_FT, matcher),
             (COMMAND_WITHDRAW_LAMPORTS, Some(matcher)) => (COMMAND_WITHDRAW_LAMPORTS, matcher),
             (COMMAND_WITHDRAW_NFT, Some(matcher)) => (COMMAND_WITHDRAW_NFT, matcher),
+            (COMMAND_STAKING, Some(matcher)) => match matcher.subcommand() {
+                (COMMAND_INITIALIZE, Some(matcher)) => (COMMAND_STAKING_INITIALIZE, matcher),
+                (COMMAND_ADD_REWARD_TOKENS, Some(matcher)) => {
+                    (COMMAND_STAKING_ADD_REWARD_TOKENS, matcher)
+                }
+                _ => unimplemented!(),
+            },
             _ => unimplemented!(),
         }
     }
@@ -530,13 +608,31 @@ impl<'a> Cli<'a> {
             COMMAND_INITIALIZE => CliCommand::Initialize,
             COMMAND_MINT => CliCommand::Mint,
             COMMAND_MINT_NFT => CliCommand::MintNft,
-            COMMAND_UPDATE_NFT => CliCommand::UpdateNft,
+            COMMAND_STAKING_ADD_REWARD_TOKENS => CliCommand::StakingAddRewardTokens,
+            COMMAND_STAKING_INITIALIZE => CliCommand::StakingInitialize,
             COMMAND_TRANSFER => CliCommand::Transfer,
+            COMMAND_UPDATE_NFT => CliCommand::UpdateNft,
             COMMAND_WITHDRAW_FT => CliCommand::WithdrawFt,
             COMMAND_WITHDRAW_LAMPORTS => CliCommand::WithdrawLamports,
             COMMAND_WITHDRAW_NFT => CliCommand::WithdrawNft,
             _ => unimplemented!(),
         }
+    }
+
+    fn timestamp(&self, name: &str) -> u64 {
+        let matches = self.get_matches().1;
+        unix_timestamp_from_rfc3339_datetime(matches, name)
+            .unwrap()
+            .try_into()
+            .unwrap()
+    }
+
+    pub fn start_time(&self) -> u64 {
+        self.timestamp(START_TIMESTAMP)
+    }
+
+    pub fn end_time(&self) -> u64 {
+        self.timestamp(END_TIMESTAMP)
     }
 
     pub fn ui_amount(&self) -> f64 {
@@ -626,6 +722,15 @@ impl<'a> Cli<'a> {
     pub fn authority(&self) -> Result<Rc<dyn Signer>> {
         self.get_signer(AUTHORITY)
             .map_err(|e| CliError::CannotGetAuthority(e.to_string()).into())
+    }
+
+    pub fn min_stake_size(&self) -> f64 {
+        let matches = self.get_matches().1;
+        value_t_or_exit!(matches, MIN_STAKE_SIZE, f64)
+    }
+
+    pub fn staking_info(&self) -> Pubkey {
+        self.get_pubkey(STAKING_INFO)
     }
 
     fn default_mint_file(&self) -> &str {

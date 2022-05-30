@@ -170,11 +170,11 @@ impl Display for AppError {
         let logs;
         match &self {
             AppError::InternalError(e) => {
-                write!(f, "{} {}", "Error:".red(), e)?;
+                write!(f, "{} {}", "error:".red(), e)?;
                 logs = None;
             }
             AppError::AnchorClientError(e) => {
-                write!(f, "{} {}", "Error:".red(), e)?;
+                write!(f, "{} {}", "error:".red().bold(), e)?;
                 match e {
                     AnchorClientError::SolanaClientError(client_error) => {
                         logs = extract_logs(client_error);
@@ -183,7 +183,7 @@ impl Display for AppError {
                 }
             }
             AppError::ClientError(e) => {
-                write!(f, "{} {}", "Error:".red(), e)?;
+                write!(f, "{} {}", "error:".red().bold(), e)?;
                 logs = extract_logs(e);
             }
         }

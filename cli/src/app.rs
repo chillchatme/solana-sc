@@ -6,15 +6,18 @@ use crate::{
 };
 use anchor_client::{
     solana_sdk::{
-        native_token::sol_to_lamports, program_option::COption, pubkey::Pubkey,
-        signature::Signature, signer::Signer,
+        native_token::sol_to_lamports,
+        program_option::COption,
+        pubkey::Pubkey,
+        signature::{Keypair, Signature},
+        signer::Signer,
     },
     Cluster,
 };
 use chill_nft::state::Fees;
 use colored::Colorize;
 use spl_token::native_mint;
-use std::{fs, path::Path, process::exit, rc::Rc};
+use std::{fs, io::Write, path::Path, process::exit, rc::Rc};
 
 pub struct App<'cli> {
     cli: Cli<'cli>,
@@ -49,8 +52,9 @@ impl App<'_> {
 
     fn save_mint(&self, mint: Pubkey) -> Result<()> {
         let save_path = self.cli.save_path();
+        let mint = mint.to_string();
 
-        std::fs::write(save_path, mint.to_string())
+        std::fs::write(save_path, mint)
             .map_err(|_| CliError::CannotWriteToFile(save_path.to_owned()))?;
 
         let path = Path::new(save_path);
@@ -273,7 +277,7 @@ impl App<'_> {
         self.print_balance(primary_wallet_pubkey, mint)
     }
 
-    pub fn initialize(&self) -> Result<()> {
+    pub fn process_nft_initialize(&self) -> Result<()> {
         let payer = self.cli.payer()?;
         let primary_wallet = self.cli.primary_wallet()?;
         let mint = self.get_mint()?;
@@ -371,11 +375,73 @@ impl App<'_> {
         Ok(())
     }
 
+    pub fn process_staking_initialize(&self) -> Result<()> {
+        let primary_wallet = self.cli.primary_wallet()?;
+        let payer = self.cli.payer()?;
+        let mint = self.get_mint()?;
+        let start_time = self.cli.start_time();
+        let end_time = self.cli.end_time();
+        let min_stake_size_ui = self.cli.min_stake_size();
+
+        let mint_account = self.client.mint_account(mint)?;
+        let decimals = mint_account.decimals;
+        let min_stake_size = spl_token::ui_amount_to_amount(min_stake_size_ui, decimals);
+
+        let staking_info = Keypair::new();
+        let signature = self.client.staking_initialize(
+            &staking_info,
+            primary_wallet,
+            payer,
+            mint,
+            start_time,
+            end_time,
+            min_stake_size,
+        )?;
+
+        let file_name = "staking_info.pubkey";
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(file_name)?;
+
+        writeln!(file, "{}", staking_info.pubkey())
+            .map_err(|_| CliError::CannotWriteToFile(file_name.to_owned()))?;
+
+        println!("{} {}", "StakingInfo:".green(), staking_info.pubkey());
+        self.print_signature(&signature);
+
+        Ok(())
+    }
+
+    pub fn process_staking_add_reward_tokens(&self) -> Result<()> {
+        let primary_wallet = self.cli.primary_wallet()?;
+        let payer = self.cli.payer()?;
+        let mint = self.get_mint()?;
+        let staking_info = self.cli.staking_info();
+
+        let mint_account = self.client.mint_account(mint)?;
+        let decimals = mint_account.decimals;
+        let ui_amount = self.cli.ui_amount();
+        let amount = spl_token::ui_amount_to_amount(ui_amount, decimals);
+
+        let signature = self.client.staking_add_token_reward(
+            primary_wallet,
+            payer,
+            staking_info,
+            mint,
+            amount,
+        )?;
+
+        self.print_signature(&signature);
+
+        Ok(())
+    }
+
     pub fn run(&self) {
         let result = match self.cli.command() {
             CliCommand::Balance => self.process_print_balance(),
             CliCommand::Info => self.process_print_info(),
-            CliCommand::Initialize => self.initialize(),
+            CliCommand::Initialize => self.process_nft_initialize(),
             CliCommand::Mint => self.process_mint(),
             CliCommand::MintNft => self.process_mint_nft(),
             CliCommand::UpdateNft => self.process_update_nft(),
@@ -384,6 +450,8 @@ impl App<'_> {
             CliCommand::WithdrawLamports => self.process_withdraw_lamports(),
             CliCommand::WithdrawFt => self.process_withdraw_ft(),
             CliCommand::WithdrawNft => self.process_withdraw_nft(),
+            CliCommand::StakingInitialize => self.process_staking_initialize(),
+            CliCommand::StakingAddRewardTokens => self.process_staking_add_reward_tokens(),
         };
 
         if let Err(error) = result {

@@ -20,7 +20,7 @@ build:
 deploy:
 	yarn
 	yarn run anchor build
-	yarn run anchor deploy --provider.cluster testnet
+	yarn run anchor deploy --provider.cluster devnet
 
 deploy-mainnet:
 	yarn

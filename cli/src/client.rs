@@ -20,6 +20,7 @@ use anchor_client::{
     },
     Client as AnchorClient, Cluster, Program,
 };
+use anchor_spl::associated_token;
 use chill_nft::{
     self,
     state::{ChillNftMetadata, Config, Fees, NftType, Recipient, AUTHORITY_SHARE},
@@ -664,6 +665,85 @@ impl Client {
                 token_program: spl_token::ID,
             })
             .signer(authority.as_ref())
+            .send()
+            .map_err(Into::into)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn staking_initialize(
+        &self,
+        staking_info: &Keypair,
+        primary_wallet: Rc<dyn Signer>,
+        payer: Rc<dyn Signer>,
+        mint: Pubkey,
+        start_time: u64,
+        end_time: u64,
+        min_stake_size: u64,
+    ) -> Result<Signature> {
+        let program_id = chill_staking::ID;
+        let program = self.program(payer.clone(), program_id)?;
+
+        let staking_token_authority = pda::staking_token_authority(staking_info.pubkey());
+        let staking_token_account = get_associated_token_address(&staking_token_authority, &mint);
+
+        let args = chill_staking::InitializeArgs {
+            start_time,
+            end_time,
+            min_stake_size,
+        };
+
+        program
+            .request()
+            .args(chill_staking::instruction::Initialize { args })
+            .accounts(chill_staking::accounts::Initialize {
+                primary_wallet: primary_wallet.pubkey(),
+                payer: payer.pubkey(),
+                staking_info: staking_info.pubkey(),
+                staking_token_authority,
+                staking_token_account,
+                mint,
+                system_program: system_program::ID,
+                rent: Rent::id(),
+                token_program: spl_token::ID,
+                associated_token_program: associated_token::ID,
+            })
+            .signer(primary_wallet.as_ref())
+            .signer(staking_info)
+            .send()
+            .map_err(Into::into)
+    }
+
+    pub fn staking_add_token_reward(
+        &self,
+        primary_wallet: Rc<dyn Signer>,
+        payer: Rc<dyn Signer>,
+        staking_info: Pubkey,
+        mint: Pubkey,
+        amount: u64,
+    ) -> Result<Signature> {
+        let program_id = chill_staking::ID;
+        let program = self.program(payer.clone(), program_id)?;
+
+        let primary_wallet_token_account = self
+            .find_token_address(primary_wallet.pubkey(), mint)?
+            .ok_or_else(|| CliError::TokenAccountNotFound(primary_wallet.pubkey()))?;
+
+        let staking_token_authority = pda::staking_token_authority(staking_info);
+        let staking_token_account = get_associated_token_address(&staking_token_authority, &mint);
+
+        program
+            .request()
+            .args(chill_staking::instruction::AddRewardTokens { amount })
+            .accounts(chill_staking::accounts::AddRewardTokens {
+                primary_wallet: primary_wallet.pubkey(),
+                token_account_authority: primary_wallet.pubkey(),
+                token_account: primary_wallet_token_account,
+                staking_info,
+                staking_token_authority,
+                staking_token_account,
+                token_program: spl_token::ID,
+            })
+            .signer(primary_wallet.as_ref())
             .send()
             .map_err(Into::into)
     }

@@ -3,6 +3,11 @@ use chill_nft::state::{ChillNftMetadata, Config};
 use chill_wallet::state::ProxyWallet;
 use mpl_token_metadata::state::{EDITION, PREFIX};
 
+pub fn staking_token_authority(staking_info: Pubkey) -> Pubkey {
+    let seeds = &[staking_info.as_ref()];
+    Pubkey::find_program_address(seeds, &chill_staking::ID).0
+}
+
 pub fn config(mint: Pubkey) -> Pubkey {
     let seeds = &[Config::SEED, mint.as_ref()];
     Pubkey::find_program_address(seeds, &chill_nft::ID).0
