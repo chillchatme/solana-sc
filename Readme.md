@@ -144,6 +144,17 @@ You can mint NFT tokens with this command:
 ./chill-cli mint-nft pet "Bob the cat" https://arweave.org/hkjc8h3jk2938hk32
 ```
 
+You can initialize staking account with this commands:
+
+```bash
+./chill-cli staking initialize     \
+    --start "2023-01-01T00:00:00Z" \
+    --end "2027-12-31T00:00:00Z"   \
+    --min-stake-size 1.500
+
+./chill-cli staking add-reward-tokens 123.456
+```
+
 For more information, run:
 
 ```bash
