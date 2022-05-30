@@ -58,8 +58,10 @@ describe("Staking simulation | All days with active stake and boost", () => {
       .signers([user])
       .rpc();
 
+    const currentDay = await stakingUtils.getCurrentDay(program);
     expectedUserInfo.totalBoostNumber.iaddn(1);
     expectedStakingInfo.totalBoostNumber.iaddn(1);
+    expectedStakingInfo.lastUpdateDay = currentDay;
 
     const userInfo = await program.account.userInfo.fetch(userInfoPubkey);
     const stakingInfo = await program.account.stakingInfo.fetch(
@@ -252,6 +254,7 @@ describe("Staking simulation | All days with active stake and boost", () => {
     expectedStakingInfo.totalStakesNumber = new BN(1);
     expectedStakingInfo.totalStakedAmount = new BN(20_000);
     expectedStakingInfo.lastUpdateDay = new BN(startDay);
+    expectedStakingInfo.lastDayWithStake = new BN(startDay);
     expectedStakingInfo.lastDailyReward = new BN(5_000_000);
 
     stakingUtils.assertUserInfoEqual(userInfo, expectedFirstUserInfo);
@@ -285,6 +288,7 @@ describe("Staking simulation | All days with active stake and boost", () => {
     expectedStakingInfo.totalStakesNumber = new BN(2);
     expectedStakingInfo.totalStakedAmount = new BN(40_000);
     expectedStakingInfo.lastUpdateDay = new BN(startDay + 1);
+    expectedStakingInfo.lastDayWithStake = new BN(startDay + 1);
 
     stakingUtils.assertUserInfoEqual(userInfo, expectedSecondUserInfo);
     stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);
@@ -332,6 +336,7 @@ describe("Staking simulation | All days with active stake and boost", () => {
     expectedStakingInfo.totalStakesNumber = new BN(3);
     expectedStakingInfo.totalStakedAmount = new BN(70_000);
     expectedStakingInfo.lastUpdateDay = new BN(startDay + 4);
+    expectedStakingInfo.lastDayWithStake = new BN(startDay + 4);
 
     stakingUtils.assertUserInfoEqual(userInfo, expectedThirdUserInfo);
     stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);
@@ -369,6 +374,7 @@ describe("Staking simulation | All days with active stake and boost", () => {
 
     expectedFirstUserInfo.pendingAmount = new BN(20_000);
     expectedSecondUserInfo.pendingAmount = new BN(20_000);
+    expectedStakingInfo.lastUpdateDay = new BN(startDay + 5);
 
     stakingUtils.assertUserInfoEqual(firstUserInfo, expectedFirstUserInfo);
     stakingUtils.assertUserInfoEqual(secondUserInfo, expectedSecondUserInfo);
@@ -431,6 +437,7 @@ describe("Staking simulation | All days with active stake and boost", () => {
     expectedStakingInfo.totalStakesNumber = new BN(4);
     expectedStakingInfo.totalStakedAmount = new BN(125_000);
     expectedStakingInfo.lastUpdateDay = new BN(startDay + 8);
+    expectedStakingInfo.lastDayWithStake = new BN(startDay + 8);
     expectedStakingInfo.totalRewardedAmount = new BN(27_571_426);
     expectedStakingInfo.lastUpdateDay = new BN(startDay + 8);
 

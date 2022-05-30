@@ -57,7 +57,7 @@ pub fn calculate_daily_staking_reward(
     day_index: u64,
     total_days: u64,
     unspent_amount: u64,
-    total_rewarded_free_amount: u64,
+    rewarded_unspent_amount: u64,
     reward_tokens_amount: u64,
 ) -> (u64, u64) {
     let remaining_days = total_days.checked_sub(day_index).unwrap();
@@ -75,12 +75,12 @@ pub fn calculate_daily_staking_reward(
 
     let unspent_amount_x_total_days = U256::from(unspent_amount).checked_mul(total_days).unwrap();
 
-    let total_rewarded_free_amount_x_total_days = U256::from(total_rewarded_free_amount)
+    let rewarded_unspent_amount_x_total_days = U256::from(rewarded_unspent_amount)
         .checked_mul(total_days)
         .unwrap();
 
-    let free_amount_x_total_days = unspent_amount_x_total_days
-        .checked_sub(total_rewarded_free_amount_x_total_days)
+    let remaining_unspent_amount_x_total_days = unspent_amount_x_total_days
+        .checked_sub(rewarded_unspent_amount_x_total_days)
         .unwrap();
 
     let reward_tokens_amount_x_total_days = U256::from(reward_tokens_amount)
@@ -88,14 +88,14 @@ pub fn calculate_daily_staking_reward(
         .unwrap();
 
     let numerator = reward_tokens_amount_x_total_days
-        .checked_add(free_amount_x_total_days)
+        .checked_add(remaining_unspent_amount_x_total_days)
         .and_then(|v| v.checked_sub(max_rewarded_x_total_days))
         .unwrap();
 
     let daily_reward = numerator.checked_div(denomenator).unwrap().as_u64();
 
     let remaining_days_x_total_days = U256::from(remaining_days).checked_mul(total_days).unwrap();
-    let daily_unspent_reward = free_amount_x_total_days
+    let daily_unspent_reward = remaining_unspent_amount_x_total_days
         .checked_div(remaining_days_x_total_days)
         .unwrap()
         .as_u64();
@@ -186,6 +186,8 @@ pub fn update_state_accounts(
     user_info: &mut Account<UserInfo>,
     staking_info: &mut Account<StakingInfo>,
 ) -> Result<()> {
+    staking_info.update_daily_reward()?;
+
     let user_has_ended_stake = user_info.has_ended_stake(staking_info.end_day)?;
     if !user_has_ended_stake {
         return Ok(());

@@ -114,7 +114,7 @@ describe("Staking simulation | Staking with skips", () => {
   // 0               0            0
   // 1         +20_000            0
   // 2               0            0
-  // 3               0            0
+  // 3           Boost            0
   // 4               0            0
   // 5               0            0
   // 6               0            0
@@ -160,12 +160,40 @@ describe("Staking simulation | Staking with skips", () => {
     expectedStakingInfo.dailyUnspentReward = new BN(1_111_111);
     expectedStakingInfo.lastDailyReward = new BN(5_555_555);
     expectedStakingInfo.lastUpdateDay = new BN(startDay + 1);
+    expectedStakingInfo.lastDayWithStake = new BN(startDay + 1);
     expectedStakingInfo.totalDaysWithNoReward = new BN(1);
     expectedStakingInfo.totalStakedAmount = new BN(20_000);
     expectedStakingInfo.totalStakesNumber = new BN(1);
     expectedStakingInfo.totalUnspentAmount = new BN(10_000_000);
 
     stakingUtils.assertUserInfoEqual(firstUserInfo, expectedFirstUserInfo);
+    stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);
+  });
+
+  it("Day 3", async () => {
+    await stakingUtils.waitUntil(program, startDay + 3);
+
+    await program.methods
+      .boost()
+      .accounts({
+        user: firstUser.publicKey,
+        userInfo: firstUserInfoPubkey,
+        stakingInfo: stakingInfoPubkey,
+      })
+      .signers([firstUser])
+      .rpc();
+
+    const userInfo = await program.account.userInfo.fetch(firstUserInfoPubkey);
+    const stakingInfo = await program.account.stakingInfo.fetch(
+      stakingInfoPubkey
+    );
+
+    expectedFirstUserInfo.totalBoostNumber = new BN(1);
+    expectedStakingInfo.totalBoostNumber = new BN(1);
+    expectedStakingInfo.lastUpdateDay = new BN(startDay + 3);
+    expectedStakingInfo.rewardedUnspentAmount = new BN(2_222_222);
+
+    stakingUtils.assertUserInfoEqual(userInfo, expectedFirstUserInfo);
     stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);
   });
 
@@ -216,14 +244,16 @@ describe("Staking simulation | Staking with skips", () => {
     expectedFirstUserInfo.stakedAmount = new BN(0);
     expectedFirstUserInfo.rewardedAmount = new BN(0);
     expectedFirstUserInfo.pendingAmount = new BN(0);
-    expectedFirstUserInfo.totalRewardedAmount = new BN(38_888_885);
+    expectedFirstUserInfo.totalRewardedAmount = new BN(44_444_440);
 
     expectedStakingInfo.activeStakesNumber = new BN(0);
-    expectedStakingInfo.totalRewardedAmount = new BN(38_888_885);
-    expectedStakingInfo.totalUnspentAmount = new BN(48_888_885);
+    expectedStakingInfo.lastUpdateDay = new BN(startDay + 8);
+    expectedStakingInfo.rewardedUnspentAmount = new BN(7_777_777);
+    expectedStakingInfo.totalRewardedAmount = new BN(44_444_440);
+    expectedStakingInfo.totalUnspentAmount = new BN(43_333_330);
 
-    stakingUtils.assertUserInfoEqual(firstUserInfo, expectedFirstUserInfo);
     stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);
+    stakingUtils.assertUserInfoEqual(firstUserInfo, expectedFirstUserInfo);
   });
 
   it("Day 9", async () => {
@@ -246,6 +276,44 @@ describe("Staking simulation | Staking with skips", () => {
       .signers([secondUser, payer])
       .rpc({ skipPreflight: true });
 
+    let stakingInfo = await program.account.stakingInfo.fetch(
+      stakingInfoPubkey
+    );
+
+    let secondUserInfo = await program.account.userInfo.fetch(
+      secondUserInfoPubkey
+    );
+
+    // (100_000_000 - 5_555_555 * 7 - 5_555_555) / 2 = 27_777_780
+    // But due to integer calculations, the daily staking reward = 27_777_776
+    //
+    // Calculations with fractional numbers:
+    // (100_000_000 - 5_555_555.555555 * 8) / 2 = 27_777_777
+    // (100_000_000 - 9 * 10_000_000 + 2 * 10_000_000 + 5_555_555.555555 * 6 - 1_111_111.111111 * 7) / 2 = 27_777_777
+    //
+    // Calculations with integer numbers:
+    // (100_000_000 - 9 * 10_000_000 + 2 * 10_000_000 + 5_555_555 * 6 - 1_111_111 * 7) / 2 = 27_777_776
+    expectedSecondUserInfo.bump = secondUserInfo.bump;
+    expectedSecondUserInfo.dailyStakingReward = new BN(27_777_776);
+    expectedSecondUserInfo.stakedAmount = new BN(20_000);
+    expectedSecondUserInfo.startDay = new BN(startDay + 9);
+    expectedStakingInfo.lastDayWithStake = new BN(startDay + 9);
+    expectedSecondUserInfo.totalStakedAmount = new BN(20_000);
+
+    // totalUnspentAmount = 2 * 10_000_000 + 6 * 5_555_555 = 53_333_330
+    // dailyUnspentReward = (53_333_330 - 7_777_777) / (10 - 9) = 45_555_553
+    expectedStakingInfo.activeStakesNumber = new BN(1);
+    expectedStakingInfo.dailyUnspentReward = new BN(45_555_553);
+    expectedStakingInfo.totalUnspentAmount = new BN(53_333_330);
+    expectedStakingInfo.lastDailyReward = new BN(27_777_776);
+    expectedStakingInfo.lastUpdateDay = new BN(startDay + 9);
+    expectedStakingInfo.totalDaysWithNoReward = new BN(2);
+    expectedStakingInfo.totalStakedAmount = new BN(40_000);
+    expectedStakingInfo.totalStakesNumber = new BN(2);
+
+    stakingUtils.assertUserInfoEqual(secondUserInfo, expectedSecondUserInfo);
+    stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);
+
     await program.methods
       .boost()
       .accounts({
@@ -256,40 +324,12 @@ describe("Staking simulation | Staking with skips", () => {
       .signers([secondUser])
       .rpc();
 
-    const stakingInfo = await program.account.stakingInfo.fetch(
-      stakingInfoPubkey
-    );
+    stakingInfo = await program.account.stakingInfo.fetch(stakingInfoPubkey);
 
-    const secondUserInfo = await program.account.userInfo.fetch(
-      secondUserInfoPubkey
-    );
+    secondUserInfo = await program.account.userInfo.fetch(secondUserInfoPubkey);
 
-    // (100_000_000 - 5_555_555 * 7) / 2 = 30_555_557
-    // But due to integer calculations, the daily staking reward = 30_555_554
-    //
-    // Calculations with fractional numbers:
-    // (100_000_000 - 5_555_555.555555 * 7) / 2 = 30555555
-    // (100_000_000 - 9 * 10_000_000 + 2 * 10_000_000 + 5_555_555.555555 * 7 - 1_111_111.111111 * 7) / 2 = 30555555
-    //
-    // Calculations with integer numbers:
-    // (100_000_000 - 9 * 10_000_000 + 2 * 10_000_000 + 5_555_555 * 7 - 1_111_111 * 7) / 2 = 30555554
-    expectedSecondUserInfo.bump = secondUserInfo.bump;
-    expectedSecondUserInfo.dailyStakingReward = new BN(30_555_554);
-    expectedSecondUserInfo.stakedAmount = new BN(20_000);
-    expectedSecondUserInfo.startDay = new BN(startDay + 9);
     expectedSecondUserInfo.totalBoostNumber = new BN(1);
-    expectedSecondUserInfo.totalStakedAmount = new BN(20_000);
-
-    expectedStakingInfo.activeStakesNumber = new BN(1);
-    expectedStakingInfo.dailyUnspentReward = new BN(51_111_108);
-    expectedStakingInfo.lastDailyReward = new BN(30_555_554);
-    expectedStakingInfo.lastUpdateDay = new BN(startDay + 9);
-    expectedStakingInfo.rewardedUnspentAmount = new BN(7_777_777);
-    expectedStakingInfo.totalBoostNumber = new BN(1);
-    expectedStakingInfo.totalDaysWithNoReward = new BN(2);
-    expectedStakingInfo.totalStakedAmount = new BN(40_000);
-    expectedStakingInfo.totalStakesNumber = new BN(2);
-    expectedStakingInfo.totalUnspentAmount = new BN(58_888_885);
+    expectedStakingInfo.totalBoostNumber = new BN(2);
 
     stakingUtils.assertUserInfoEqual(secondUserInfo, expectedSecondUserInfo);
     stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);
@@ -342,10 +382,10 @@ describe("Staking simulation | Staking with skips", () => {
     expectedSecondUserInfo.stakedAmount = new BN(0);
     expectedSecondUserInfo.rewardedAmount = new BN(0);
     expectedSecondUserInfo.pendingAmount = new BN(0);
-    expectedSecondUserInfo.totalRewardedAmount = new BN(61_111_108);
+    expectedSecondUserInfo.totalRewardedAmount = new BN(55_555_552);
 
     expectedStakingInfo.activeStakesNumber = new BN(0);
-    expectedStakingInfo.totalRewardedAmount = new BN(99_999_993);
+    expectedStakingInfo.totalRewardedAmount = new BN(99_999_992);
 
     stakingUtils.assertUserInfoEqual(secondUserInfo, expectedSecondUserInfo);
     stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);

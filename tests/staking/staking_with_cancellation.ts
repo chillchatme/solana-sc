@@ -187,6 +187,7 @@ describe("Staking simulation | Staking with cancellation", () => {
 
     expectedStakingInfo.activeStakesNumber = new BN(2);
     expectedStakingInfo.lastDailyReward = new BN(5_000_000);
+    expectedStakingInfo.lastDayWithStake = new BN(startDay);
     expectedStakingInfo.lastUpdateDay = new BN(startDay);
     expectedStakingInfo.totalStakedAmount = new BN(40_000);
     expectedStakingInfo.totalStakesNumber = new BN(2);
@@ -214,6 +215,7 @@ describe("Staking simulation | Staking with cancellation", () => {
     );
 
     expectedFirstUserInfo.pendingAmount = new BN(20_000);
+    expectedStakingInfo.lastUpdateDay = new BN(startDay + 1);
 
     stakingUtils.assertUserInfoEqual(firstUserInfo, expectedFirstUserInfo);
     stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);
@@ -257,6 +259,7 @@ describe("Staking simulation | Staking with cancellation", () => {
     expectedFirstUserInfo.totalBoostNumber = new BN(1);
     expectedSecondUserInfo.totalBoostNumber = new BN(1);
     expectedStakingInfo.totalBoostNumber = new BN(2);
+    expectedStakingInfo.lastUpdateDay = new BN(startDay + 2);
 
     stakingUtils.assertUserInfoEqual(firstUserInfo, expectedFirstUserInfo);
     stakingUtils.assertUserInfoEqual(secondUserInfo, expectedSecondUserInfo);
@@ -291,10 +294,11 @@ describe("Staking simulation | Staking with cancellation", () => {
     expectedFirstUserInfo.totalStakedAmount = new BN(0);
 
     expectedStakingInfo.activeStakesNumber = new BN(1);
+    expectedStakingInfo.lastUpdateDay = new BN(startDay + 3);
     expectedStakingInfo.totalBoostNumber = new BN(1);
+    expectedStakingInfo.totalCancelNumber = new BN(1);
     expectedStakingInfo.totalStakedAmount = new BN(20_000);
     expectedStakingInfo.totalStakesNumber = new BN(1);
-    expectedStakingInfo.totalCancelNumber = new BN(1);
 
     stakingUtils.assertUserInfoEqual(firstUserInfo, expectedFirstUserInfo);
     stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);
@@ -350,6 +354,7 @@ describe("Staking simulation | Staking with cancellation", () => {
     expectedSecondUserInfo.totalRewardedAmount = new BN(40_000_000);
 
     expectedStakingInfo.activeStakesNumber = new BN(0);
+    expectedStakingInfo.lastUpdateDay = new BN(startDay + 7);
     expectedStakingInfo.totalRewardedAmount = new BN(40_000_000);
     expectedStakingInfo.totalUnspentAmount = new BN(30_000_000);
 

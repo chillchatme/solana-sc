@@ -192,6 +192,7 @@ describe("Staking simulation | All days with active stake without boost", () => 
     expectedStakingInfo.totalStakesNumber = new BN(2);
     expectedStakingInfo.totalStakedAmount = new BN(40_000);
     expectedStakingInfo.lastUpdateDay = new BN(startDay);
+    expectedStakingInfo.lastDayWithStake = new BN(startDay);
     expectedStakingInfo.lastDailyReward = new BN(5_000_000);
 
     stakingUtils.assertUserInfoEqual(firstUserInfo, expectedFirstUserInfo);
@@ -248,6 +249,7 @@ describe("Staking simulation | All days with active stake without boost", () => 
     expectedStakingInfo.activeStakesNumber = new BN(1);
     expectedStakingInfo.totalRewardedAmount = new BN(17_500_000);
     expectedStakingInfo.totalUnspentAmount = new BN(17_500_000);
+    expectedStakingInfo.lastUpdateDay = new BN(startDay + 7);
 
     stakingUtils.assertUserInfoEqual(firstUserInfo, expectedFirstUserInfo);
     stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);
@@ -266,7 +268,6 @@ describe("Staking simulation | All days with active stake without boost", () => 
       secondUserInfoPubkey
     );
 
-    expectedSecondUserInfo.dailyStakingReward = new BN(10_833_333);
     expectedSecondUserInfo.pendingAmount = new BN(0);
     expectedSecondUserInfo.rewardedAmount = new BN(17_500_000);
     expectedSecondUserInfo.stakedAmount = new BN(40_000);
@@ -275,9 +276,7 @@ describe("Staking simulation | All days with active stake without boost", () => 
     expectedSecondUserInfo.totalStakedAmount = new BN(60_000);
 
     expectedStakingInfo.activeStakesNumber = new BN(1);
-    expectedStakingInfo.dailyUnspentReward = new BN(11_666_666);
-    expectedStakingInfo.lastDailyReward = new BN(10_833_333);
-    expectedStakingInfo.lastUpdateDay = new BN(startDay + 7);
+    expectedStakingInfo.lastDayWithStake = new BN(startDay + 7);
     expectedStakingInfo.totalRewardedAmount = new BN(35_000_000);
     expectedStakingInfo.totalStakedAmount = new BN(80_000);
     expectedStakingInfo.totalStakesNumber = new BN(3);
@@ -330,11 +329,11 @@ describe("Staking simulation | All days with active stake without boost", () => 
     expectedSecondUserInfo.pendingAmount = new BN(0);
     expectedSecondUserInfo.rewardedAmount = new BN(0);
     expectedSecondUserInfo.stakedAmount = new BN(0);
-    expectedSecondUserInfo.totalRewardedAmount = new BN(49_999_999);
+    expectedSecondUserInfo.totalRewardedAmount = new BN(32_500_000);
 
     expectedStakingInfo.activeStakesNumber = new BN(0);
-    expectedStakingInfo.totalRewardedAmount = new BN(67_499_999);
-    expectedStakingInfo.totalUnspentAmount = new BN(67_499_999);
+    expectedStakingInfo.totalRewardedAmount = new BN(50_000_000);
+    expectedStakingInfo.totalUnspentAmount = new BN(50_000_000);
 
     stakingUtils.assertUserInfoEqual(secondUserInfo, expectedSecondUserInfo);
     stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);

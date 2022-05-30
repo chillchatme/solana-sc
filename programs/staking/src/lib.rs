@@ -238,7 +238,6 @@ pub mod chill_staking {
             StakingErrorCode::SmallStakeSize
         );
 
-        staking_info.update_daily_reward()?;
         user_info.daily_staking_reward = staking_info.last_daily_reward;
         user_info.start_day = Some(utils::current_day()?);
         user_info.total_staked_amount = user_info
@@ -257,6 +256,8 @@ pub mod chill_staking {
             .unwrap();
 
         staked_amounts.set(day_index, &new_amount)?;
+
+        staking_info.last_day_with_stake = utils::current_day()?;
 
         staking_info.active_stakes_number =
             staking_info.active_stakes_number.checked_add(1).unwrap();

@@ -261,7 +261,7 @@ describe("Staking simulation | Edge cases", () => {
     );
   });
 
-  it("Try to stake small amount of tokens", async () => {
+  it("Try to small amount of tokens", async () => {
     await assert.rejects(
       async () => {
         await program.methods
@@ -294,6 +294,7 @@ describe("Staking simulation | Edge cases", () => {
     expectedStakingInfo.activeStakesNumber = new BN(1);
     expectedStakingInfo.totalStakesNumber = new BN(1);
     expectedStakingInfo.lastUpdateDay = new BN(startDay);
+    expectedStakingInfo.lastDayWithStake = new BN(startDay);
 
     expectedUserInfo.user = user.publicKey;
     expectedUserInfo.stakingInfo = stakingInfoPubkey;
@@ -324,7 +325,7 @@ describe("Staking simulation | Edge cases", () => {
   });
 
   it("Stake twice", async () => {
-    await stakingUtils.waitForDay(program);
+    await stakingUtils.waitUntil(program, startDay + 1);
 
     await program.methods
       .stake(new BN(stakeAmount))
@@ -333,6 +334,7 @@ describe("Staking simulation | Edge cases", () => {
       .rpc();
 
     expectedUserInfo.pendingAmount = new BN(stakeAmount);
+    expectedStakingInfo.lastUpdateDay = new BN(startDay + 1);
 
     const userInfo = await program.account.userInfo.fetch(userInfoPubkey);
     const stakingInfo = await program.account.stakingInfo.fetch(
@@ -344,7 +346,7 @@ describe("Staking simulation | Edge cases", () => {
   });
 
   it("Boost", async () => {
-    await stakingUtils.waitUntil(program, startDay + 3);
+    await stakingUtils.waitUntil(program, startDay + 2);
     await program.methods
       .boost()
       .accounts({
@@ -356,7 +358,7 @@ describe("Staking simulation | Edge cases", () => {
       .rpc();
 
     const currentDay = await stakingUtils.getCurrentDay(program);
-    assert.equal(currentDay.toNumber(), startDay + 3);
+    assert.equal(currentDay.toNumber(), startDay + 2);
 
     const userInfo = await program.account.userInfo.fetch(userInfoPubkey);
     const stakingInfo = await program.account.stakingInfo.fetch(
@@ -365,6 +367,7 @@ describe("Staking simulation | Edge cases", () => {
 
     expectedUserInfo.totalBoostNumber = new BN(1);
     expectedStakingInfo.totalBoostNumber = new BN(1);
+    expectedStakingInfo.lastUpdateDay = new BN(startDay + 2);
 
     stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);
     stakingUtils.assertUserInfoEqual(userInfo, expectedUserInfo);
@@ -401,8 +404,8 @@ describe("Staking simulation | Edge cases", () => {
     assert.deepEqual(boostedDays, [
       false,
       false,
-      false,
       true,
+      false,
       false,
       false,
       false,
@@ -410,9 +413,11 @@ describe("Staking simulation | Edge cases", () => {
   });
 
   it("Claim pending amount", async () => {
-    let userInfo = await program.account.userInfo.fetch(userInfoPubkey);
+    await stakingUtils.waitUntil(program, startDay + 4);
 
+    let userInfo = await program.account.userInfo.fetch(userInfoPubkey);
     let tokenBalance = await utils.tokenBalance(tokenAccount);
+
     const tokenExpectedBalance =
       tokenBalance + userInfo.pendingAmount.toNumber();
 
@@ -433,8 +438,15 @@ describe("Staking simulation | Edge cases", () => {
       .rpc();
 
     userInfo = await program.account.userInfo.fetch(userInfoPubkey);
+    const stakingInfo = await program.account.stakingInfo.fetch(
+      stakingInfoPubkey
+    );
+
     expectedUserInfo.pendingAmount = new BN(0);
+    expectedStakingInfo.lastUpdateDay = new BN(startDay + 4);
+
     stakingUtils.assertUserInfoEqual(userInfo, expectedUserInfo);
+    stakingUtils.assertStakingInfoEqual(stakingInfo, expectedStakingInfo);
 
     tokenBalance = await utils.tokenBalance(tokenAccount);
     assert.equal(tokenBalance, tokenExpectedBalance);
@@ -524,6 +536,7 @@ describe("Staking simulation | Edge cases", () => {
     expectedStakingInfo.activeStakesNumber = new BN(0);
     expectedStakingInfo.totalRewardedAmount = new BN(40_000_000);
     expectedStakingInfo.totalUnspentAmount = new BN(30_000_000);
+    expectedStakingInfo.lastUpdateDay = new BN(startDay + 7);
 
     expectedUserInfo.startDay = null;
     expectedUserInfo.stakedAmount = new BN(0);
@@ -663,6 +676,7 @@ describe("Staking simulation | Edge cases", () => {
     expectedStakingInfo.totalDaysWithNoReward = new BN(1);
     expectedStakingInfo.totalUnspentAmount = new BN(40_000_000);
     expectedStakingInfo.lastUpdateDay = new BN(startDay + 8);
+    expectedStakingInfo.lastDayWithStake = new BN(startDay + 8);
     expectedStakingInfo.lastDailyReward = new BN(15_000_000);
     expectedStakingInfo.totalStakedAmount = new BN(20_100_000);
     expectedStakingInfo.totalStakesNumber = new BN(2);
