@@ -30,7 +30,7 @@ impl InitializeArgs {
         self.end_time.checked_div(SEC_PER_DAY).unwrap()
     }
 
-    pub fn days_amount(&self) -> usize {
+    pub fn total_days(&self) -> usize {
         self.end_day().checked_sub(self.start_day()).unwrap() as usize
     }
 }
@@ -101,6 +101,8 @@ pub mod chill_staking {
         staking_info.min_stake_size = args.min_stake_size;
         staking_info.start_day = start_day;
         staking_info.end_day = end_day;
+
+        staking_info.get_vector()?;
 
         let bump = ctx.bumps["staking_token_authority"];
         let staking_token_authority = &mut ctx.accounts.staking_token_authority;

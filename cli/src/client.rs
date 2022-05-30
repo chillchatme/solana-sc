@@ -26,6 +26,7 @@ use chill_nft::{
     state::{ChillNftMetadata, Config, Fees, NftType, Recipient, AUTHORITY_SHARE},
     utils::NftArgs,
 };
+use chill_staking::{state::StakingInfo, InitializeArgs as StakingInitializeArgs};
 use mpl_token_metadata::{
     state::{Creator, DataV2, Key, Metadata, TokenStandard, MAX_METADATA_LEN},
     utils::try_from_slice_checked,
@@ -676,28 +677,43 @@ impl Client {
             .map_err(Into::into)
     }
 
+    pub fn allocate_staking(
+        &self,
+        staking_info: &Keypair,
+        payer: Rc<dyn Signer>,
+        total_days: usize,
+        program_id: Pubkey,
+    ) -> Result<Signature> {
+        let space = StakingInfo::LEN + total_days * 8;
+
+        let lamports = self
+            .rpc_client
+            .get_minimum_balance_for_rent_exemption(space)?;
+
+        let ix = system_instruction::create_account(
+            &payer.pubkey(),
+            &staking_info.pubkey(),
+            lamports,
+            space.try_into().unwrap(),
+            &program_id,
+        );
+
+        self.run_transaction(&[ix], payer.pubkey(), &[payer.as_ref(), staking_info])
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn staking_initialize(
         &self,
-        staking_info: &Keypair,
+        staking_info: Pubkey,
         primary_wallet: Rc<dyn Signer>,
         payer: Rc<dyn Signer>,
         mint: Pubkey,
-        start_time: u64,
-        end_time: u64,
-        min_stake_size: u64,
+        args: StakingInitializeArgs,
         program_id: Pubkey,
     ) -> Result<Signature> {
         let program = self.program(payer.clone(), program_id)?;
-        let staking_token_authority =
-            pda::staking_token_authority(staking_info.pubkey(), program_id);
+        let staking_token_authority = pda::staking_token_authority(staking_info, program_id);
         let staking_token_account = get_associated_token_address(&staking_token_authority, &mint);
-
-        let args = chill_staking::InitializeArgs {
-            start_time,
-            end_time,
-            min_stake_size,
-        };
 
         program
             .request()
@@ -705,7 +721,7 @@ impl Client {
             .accounts(chill_staking::accounts::Initialize {
                 primary_wallet: primary_wallet.pubkey(),
                 payer: payer.pubkey(),
-                staking_info: staking_info.pubkey(),
+                staking_info,
                 staking_token_authority,
                 staking_token_account,
                 mint,
@@ -715,7 +731,6 @@ impl Client {
                 associated_token_program: associated_token::ID,
             })
             .signer(primary_wallet.as_ref())
-            .signer(staking_info)
             .send()
             .map_err(Into::into)
     }

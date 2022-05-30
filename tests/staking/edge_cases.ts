@@ -9,6 +9,7 @@ import {
   PublicKey,
   SystemProgram,
   SYSVAR_RENT_PUBKEY,
+  TransactionInstruction,
 } from "@solana/web3.js";
 import {
   ASSOCIATED_PROGRAM_ID,
@@ -25,6 +26,8 @@ describe("Staking simulation | Edge cases", () => {
 
   const stakingInfoKeypair = Keypair.generate();
   const stakingInfoPubkey = stakingInfoKeypair.publicKey;
+
+  let createStakingAccountInstruction: TransactionInstruction;
   let stakingTokenAuthority: PublicKey;
   let stakingTokenAccount: PublicKey;
 
@@ -64,6 +67,14 @@ describe("Staking simulation | Edge cases", () => {
     startTime = new BN(currentTime + 5);
     endTime = startTime.addn(totalDays * stakingUtils.SEC_IN_DAY);
     minStakeSize = new BN(500);
+
+    createStakingAccountInstruction =
+      await stakingUtils.createStakingAccountInstruction(
+        stakingInfoPubkey,
+        payer,
+        totalDays,
+        program
+      );
   });
 
   it("Try to initialize after start day", async () => {
@@ -98,6 +109,7 @@ describe("Staking simulation | Edge cases", () => {
         await program.methods
           .initialize({ startTime: wrongStartTime, endTime, minStakeSize })
           .accounts(initializeAccounts)
+          .preInstructions([createStakingAccountInstruction])
           .signers([primaryWallet, payer, stakingInfoKeypair])
           .rpc();
       },
@@ -113,6 +125,7 @@ describe("Staking simulation | Edge cases", () => {
       await program.methods
         .initialize({ startTime: endTime, endTime: startTime, minStakeSize })
         .accounts(initializeAccounts)
+        .preInstructions([createStakingAccountInstruction])
         .signers([primaryWallet, payer, stakingInfoKeypair])
         .rpc();
     });
@@ -122,6 +135,7 @@ describe("Staking simulation | Edge cases", () => {
     await program.methods
       .initialize({ startTime, endTime, minStakeSize })
       .accounts(initializeAccounts)
+      .preInstructions([createStakingAccountInstruction])
       .signers([primaryWallet, payer, stakingInfoKeypair])
       .rpc();
 
@@ -144,7 +158,7 @@ describe("Staking simulation | Edge cases", () => {
       await program.methods
         .initialize({ startTime, endTime, minStakeSize })
         .accounts(initializeAccounts)
-        .signers([primaryWallet, payer, stakingInfoKeypair])
+        .signers([primaryWallet, payer])
         .rpc();
     });
   });

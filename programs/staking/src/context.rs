@@ -16,7 +16,7 @@ pub struct Initialize<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    #[account(init, payer = payer, space = StakingInfo::LEN + args.days_amount() * 8)]
+    #[account(zero)]
     pub staking_info: Account<'info, StakingInfo>,
 
     #[account(init, payer = payer, space = StakingTokenAuthority::LEN, seeds = [staking_info.key().as_ref()], bump)]

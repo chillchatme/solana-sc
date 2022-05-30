@@ -10,6 +10,7 @@ import {
   PublicKey,
   SystemProgram,
   SYSVAR_RENT_PUBKEY,
+  TransactionInstruction,
 } from "@solana/web3.js";
 import { ChillStaking } from "../../target/types/chill_staking";
 import {
@@ -173,6 +174,27 @@ export function assertUserInfoEqual(
   );
 }
 
+export async function createStakingAccountInstruction(
+  stakingInfoPubkey: PublicKey,
+  payer: Keypair,
+  totalDays: number,
+  program: Program<ChillStaking>
+): Promise<TransactionInstruction> {
+  const provider = program.provider;
+  const connection = provider.connection;
+
+  const space = 232 + totalDays * 8;
+  const lamports = await connection.getMinimumBalanceForRentExemption(space);
+
+  return SystemProgram.createAccount({
+    fromPubkey: payer.publicKey,
+    newAccountPubkey: stakingInfoPubkey,
+    space,
+    lamports,
+    programId: program.programId,
+  });
+}
+
 export async function initializeStaking(
   primaryWallet: Keypair,
   payer: Keypair,
@@ -182,6 +204,12 @@ export async function initializeStaking(
 ): Promise<PublicKey> {
   const stakingInfoKeypair = Keypair.generate();
   const stakingInfoPubkey = stakingInfoKeypair.publicKey;
+  const createStakingInstruction = await createStakingAccountInstruction(
+    stakingInfoPubkey,
+    payer,
+    totalDays,
+    program
+  );
 
   const stakingTokenAuthority = await getStakingAuthority(
     stakingInfoPubkey,
@@ -212,6 +240,7 @@ export async function initializeStaking(
       associatedTokenProgram: ASSOCIATED_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     })
+    .preInstructions([createStakingInstruction])
     .signers([primaryWallet, payer, stakingInfoKeypair])
     .rpc();
 
@@ -298,9 +327,7 @@ export async function pause(ms: number): Promise<void> {
 export async function getCurrentDay(
   program: Program<ChillStaking>
 ): Promise<BN> {
-  return await program.methods.viewCurrentDayNumber().view({
-    skipPreflight: true,
-  });
+  return await program.methods.viewCurrentDayNumber().view();
 }
 
 export async function getDailyRewardFromSimulation(
@@ -318,14 +345,6 @@ export async function getUserRewardFromSimulation(
   userInfo: PublicKey,
   stakingInfo: PublicKey
 ): Promise<BN> {
-  await program.methods
-    .viewUserRewardAmount()
-    .accounts({
-      userInfo,
-      stakingInfo,
-    })
-    .rpc({ skipPreflight: true });
-
   const info = await program.methods
     .viewUserRewardAmount()
     .accounts({

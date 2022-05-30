@@ -414,17 +414,23 @@ impl App<'_> {
         let decimals = mint_account.decimals;
         let min_stake_size = spl_token::ui_amount_to_amount(min_stake_size_ui, decimals);
 
-        let staking_info = Keypair::new();
-        let signature = self.client.staking_initialize(
-            &staking_info,
-            primary_wallet,
-            payer,
-            mint,
+        let args = chill_staking::InitializeArgs {
             start_time,
             end_time,
             min_stake_size,
+        };
+
+        let staking_info = Keypair::new();
+        println!("{} {}", "StakingInfo:".green(), staking_info.pubkey());
+
+        let signature = self.client.allocate_staking(
+            &staking_info,
+            payer.clone(),
+            args.total_days(),
             program_id,
         )?;
+
+        self.print_signature(&signature);
 
         let file_name = "staking_info.pubkey";
         let mut file = fs::OpenOptions::new()
@@ -435,7 +441,16 @@ impl App<'_> {
         writeln!(file, "{}", staking_info.pubkey())
             .map_err(|_| CliError::CannotWriteToFile(file_name.to_owned()))?;
 
-        println!("{} {}", "StakingInfo:".green(), staking_info.pubkey());
+        println!("\n{}", "Initialization...".green());
+        let signature = self.client.staking_initialize(
+            staking_info.pubkey(),
+            primary_wallet,
+            payer,
+            mint,
+            args,
+            program_id,
+        )?;
+
         self.print_signature(&signature);
 
         Ok(())
