@@ -68,6 +68,7 @@ const NAME: &str = "name";
 const NFT_TYPE: &str = "type";
 const PAYER: &str = "payer";
 const PRIMARY_WALLET: &str = "primary-wallet";
+const PROGRAM_ID: &str = "program-id";
 const RECIPIENT: &str = "recipient";
 const RPC_URL: &str = "url";
 const SAVE_PATH: &str = "save-path";
@@ -277,6 +278,14 @@ impl<'a> Cli<'a> {
         // Initialize
         //
 
+        let program_id = Arg::with_name(PROGRAM_ID)
+            .long(PROGRAM_ID)
+            .takes_value(true)
+            .value_name("PUBKEY")
+            .validator(is_pubkey);
+
+        let nft_program_id = program_id.clone().help("NFT program id");
+
         let multiple_recipients = Arg::with_name(RECIPIENT)
             .long(RECIPIENT)
             .short("r")
@@ -367,6 +376,7 @@ impl<'a> Cli<'a> {
                 fees_tileset,
                 fees_item,
                 fees_world,
+                nft_program_id.clone(),
             ])
             .about("Initializes the Chill smart-contract")
             .after_help(account_address_help);
@@ -429,6 +439,7 @@ impl<'a> Cli<'a> {
                 primary_wallet.clone(),
                 symbol.clone(),
                 uri.clone(),
+                nft_program_id.clone(),
             ])
             .about("Creates a new NFT")
             .after_help(account_address_help);
@@ -446,6 +457,7 @@ impl<'a> Cli<'a> {
                 primary_wallet.clone(),
                 symbol,
                 uri,
+                nft_program_id.clone(),
             ])
             .about("Updates an NFT metadata")
             .after_help(account_address_help);
@@ -454,8 +466,15 @@ impl<'a> Cli<'a> {
         // Proxy wallets
         //
 
+        let wallets_program_id = program_id.clone().help("Proxy wallets program id");
+
         let create_wallet_command = SubCommand::with_name(COMMAND_CREATE_WALLET)
-            .args(&[primary_wallet.clone(), account.clone(), payer.clone()])
+            .args(&[
+                primary_wallet.clone(),
+                account.clone(),
+                payer.clone(),
+                wallets_program_id.clone(),
+            ])
             .about("Creates a proxy wallet")
             .after_help(account_address_help);
 
@@ -467,6 +486,7 @@ impl<'a> Cli<'a> {
                 payer.clone(),
                 primary_wallet.clone(),
                 recipient.clone(),
+                wallets_program_id.clone(),
             ])
             .about("Withdraws lamports from proxy wallet")
             .after_help(account_address_help);
@@ -480,6 +500,7 @@ impl<'a> Cli<'a> {
                 primary_wallet.clone(),
                 recipient.clone(),
                 mint.clone(),
+                wallets_program_id.clone(),
             ])
             .about("Withdraws FT from proxy wallet")
             .after_help(account_address_help);
@@ -492,6 +513,7 @@ impl<'a> Cli<'a> {
                 primary_wallet.clone(),
                 recipient.clone(),
                 required_mint.clone(),
+                wallets_program_id.clone(),
             ])
             .about("Withdraws NFT from proxy wallet")
             .after_help(account_address_help);
@@ -499,6 +521,8 @@ impl<'a> Cli<'a> {
         //
         // Staking
         //
+
+        let staking_program_id = program_id.clone().help("Staking program id");
 
         let start_timestamp = Arg::with_name(START_TIMESTAMP)
             .long(START_TIMESTAMP)
@@ -541,12 +565,20 @@ impl<'a> Cli<'a> {
                 min_stake_size,
                 start_timestamp,
                 end_timestamp,
+                staking_program_id.clone(),
             ])
             .about("Initializes staking")
             .after_help(account_address_help);
 
         let staking_add_reward_tokens = SubCommand::with_name(COMMAND_ADD_REWARD_TOKENS)
-            .args(&[primary_wallet, mint, payer, amount_transfer, staking_info])
+            .args(&[
+                primary_wallet,
+                mint,
+                payer,
+                amount_transfer,
+                staking_info,
+                staking_program_id.clone(),
+            ])
             .about("Adds reward tokens to staking")
             .after_help(account_address_help);
 
@@ -558,7 +590,7 @@ impl<'a> Cli<'a> {
         App::new(crate_name!())
             .about(crate_description!())
             .version(crate_version!())
-            .arg(rpc)
+            .args(&[rpc, program_id])
             .subcommands(vec![
                 staking_command,
                 balance_command,
@@ -818,6 +850,27 @@ impl<'a> Cli<'a> {
         let matches = self.get_matches().1;
         let cluster = matches.value_of(RPC_URL).unwrap();
         Cluster::from_str(cluster).unwrap()
+    }
+
+    fn program_id(&self, default: Pubkey) -> Pubkey {
+        let matches = self.get_matches().1;
+        if matches.is_present(PROGRAM_ID) {
+            self.get_pubkey(PROGRAM_ID)
+        } else {
+            default
+        }
+    }
+
+    pub fn nft_program_id(&self) -> Pubkey {
+        self.program_id(chill_nft::ID)
+    }
+
+    pub fn wallet_program_id(&self) -> Pubkey {
+        self.program_id(chill_wallet::ID)
+    }
+
+    pub fn staking_program_id(&self) -> Pubkey {
+        self.program_id(chill_staking::ID)
     }
 
     pub fn rpc_url(&self) -> String {
