@@ -3,8 +3,9 @@
 ## Installation
 
 Make sure you have installed [Rust
-toolchain](https://www.rust-lang.org/tools/install) and [Solana Tool
-Suite](https://docs.solana.com/cli/install-solana-cli-tools)
+toolchain](https://www.rust-lang.org/tools/install), [Solana Tool
+Suite](https://docs.solana.com/cli/install-solana-cli-tools), and GNU Make
+utility.
 
 Run the command to build CLI and smart constracts:
 
