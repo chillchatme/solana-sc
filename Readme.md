@@ -104,13 +104,13 @@ recipient will be added to a creators list.
 To initialize the Chill smart contract, you should run:
 
 ```bash
-./chill-cli initialize        /
-    --character <FEES>        /
-    --emote <FEES>            /
-    --item <FEES>             /
-    --pet <FEES>              /
-    --tileset <FEES>          /
-    --world <FEES>            /
+./chill-cli initialize        \
+    --character <FEES>        \
+    --emote <FEES>            \
+    --item <FEES>             \
+    --pet <FEES>              \
+    --tileset <FEES>          \
+    --world <FEES>            \
     --recipient <ADDRESS>
 ```
 
@@ -125,14 +125,14 @@ with the corresponded share. The share is percentage number (all mint and
 transaction shares must sum up to 100).
 
 ```bash
-./chill-cli initialize          /
-    --character <FEES>          /
-    ...                         /
-    --recipient <ADDRESS_1>     /
-    --mint-share <SHARE>        /
-    --transaction-share <SHARE> /
-    --recipient <ADDRESS_2>     /
-    --mint-share <SHARE>        /
+./chill-cli initialize          \
+    --character <FEES>          \
+    ...                         \
+    --recipient <ADDRESS_1>     \
+    --mint-share <SHARE>        \
+    --transaction-share <SHARE> \
+    --recipient <ADDRESS_2>     \
+    --mint-share <SHARE>        \
     --transaction-share <SHARE>
 ```
 
