@@ -22,12 +22,15 @@ describe("Proxy wallet", () => {
   let payer: Keypair;
   let wrongAuthorty: Keypair;
   let proxyWallet: PublicKey;
+  let primaryProxyWallet: PublicKey;
 
   let chillMint: PublicKey;
   let nftMint: PublicKey;
 
   let proxyWalletChillToken: PublicKey;
   let proxyWalletNftToken: PublicKey;
+  let primaryProxyWalletChillToken: PublicKey;
+  let primaryProxyWalletNftToken: PublicKey;
   let receiverChillToken: PublicKey;
   let receiverNftToken: PublicKey;
 
@@ -35,8 +38,15 @@ describe("Proxy wallet", () => {
     payer = await utils.keypairWithSol();
     wrongAuthorty = await utils.keypairWithSol();
     receiver = await utils.keypairWithSol();
+
     proxyWallet = await walletUtils.getWalletPubkey(
       user.publicKey,
+      primaryWallet.publicKey,
+      program.programId
+    );
+
+    primaryProxyWallet = await walletUtils.getWalletPubkey(
+      primaryWallet.publicKey,
       primaryWallet.publicKey,
       program.programId
     );
@@ -50,6 +60,16 @@ describe("Proxy wallet", () => {
     );
 
     proxyWalletNftToken = await utils.createTokenAccount(proxyWallet, nftMint);
+
+    primaryProxyWalletChillToken = await utils.createTokenAccount(
+      primaryProxyWallet,
+      chillMint
+    );
+
+    primaryProxyWalletNftToken = await utils.createTokenAccount(
+      primaryProxyWallet,
+      nftMint
+    );
 
     receiverNftToken = await utils.createTokenAccount(
       receiver.publicKey,
@@ -68,10 +88,22 @@ describe("Proxy wallet", () => {
       chillTokensAmount
     );
 
-    await utils.mintTokens(mintAuthority, nftMint, proxyWalletNftToken, 1);
+    await utils.mintTokens(
+      mintAuthority,
+      chillMint,
+      primaryProxyWalletChillToken,
+      chillTokensAmount
+    );
+
+    await utils.mintTokens(
+      mintAuthority,
+      nftMint,
+      primaryProxyWalletNftToken,
+      1
+    );
   });
 
-  it("Create wallet", async () => {
+  it("Create proxy wallet", async () => {
     await program.methods
       .createWallet()
       .accounts({
@@ -87,6 +119,30 @@ describe("Proxy wallet", () => {
     const wallet = await program.account.proxyWallet.fetch(proxyWallet);
     assert.deepEqual(wallet.primaryWallet, primaryWallet.publicKey);
     assert.deepEqual(wallet.user, user.publicKey);
+    assert.equal(wallet.totalMoneyWithdrawnUser.toNumber(), 0);
+    assert.equal(wallet.totalMoneyWithdrawnPrimaryWallet.toNumber(), 0);
+    assert.equal(wallet.totalFtWithdrawnUser.toNumber(), 0);
+    assert.equal(wallet.totalFtWithdrawnPrimaryWallet.toNumber(), 0);
+    assert.equal(wallet.totalNftWithdrawnUser.toNumber(), 0);
+    assert.equal(wallet.totalNftWithdrawnPrimaryWallet.toNumber(), 0);
+  });
+
+  it("Create proxy wallet for primary wallet", async () => {
+    await program.methods
+      .createWallet()
+      .accounts({
+        primaryWallet: primaryWallet.publicKey,
+        user: primaryWallet.publicKey,
+        payer: payer.publicKey,
+        proxyWallet: primaryProxyWallet,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([payer])
+      .rpc();
+
+    const wallet = await program.account.proxyWallet.fetch(primaryProxyWallet);
+    assert.deepEqual(wallet.primaryWallet, primaryWallet.publicKey);
+    assert.deepEqual(wallet.user, primaryWallet.publicKey);
     assert.equal(wallet.totalMoneyWithdrawnUser.toNumber(), 0);
     assert.equal(wallet.totalMoneyWithdrawnPrimaryWallet.toNumber(), 0);
     assert.equal(wallet.totalFtWithdrawnUser.toNumber(), 0);
@@ -183,6 +239,8 @@ describe("Proxy wallet", () => {
 
   it("Try to withdraw too many lamports", async () => {
     await utils.transferLamports(payer, proxyWallet, lamports);
+    await utils.transferLamports(payer, primaryProxyWallet, lamports);
+
     await assert.rejects(
       async () => {
         await program.methods
@@ -265,24 +323,53 @@ describe("Proxy wallet", () => {
     );
   });
 
-  it("Withdraw lamports to proxy wallet", async () => {
-    const proxyAccount = await program.account.proxyWallet.fetch(proxyWallet);
-    const initialReceiverBalance = await connection.getBalance(proxyWallet);
+  it("Try to withdraw lamports to itself", async () => {
+    await assert.rejects(
+      async () => {
+        await program.methods
+          .withdrawLamports(new BN(lamports))
+          .accounts({
+            authority: primaryWallet.publicKey,
+            proxyWallet,
+            receiver: proxyWallet,
+          })
+          .signers([primaryWallet])
+          .rpc();
+      },
+      (err: AnchorError) => {
+        assert.equal(err.error.errorCode.code, "SenderIsRecipient");
+        return true;
+      }
+    );
+  });
+
+  it("Withdraw lamports from primary proxy wallet", async () => {
+    const proxyAccount = await program.account.proxyWallet.fetch(
+      primaryProxyWallet
+    );
+    const initialReceiverBalance = await connection.getBalance(
+      receiver.publicKey
+    );
+
+    const amount = lamports / 2;
+    proxyAccount.totalMoneyWithdrawnUser.iadd(new BN(amount));
 
     await program.methods
-      .withdrawLamports(new BN(lamports))
+      .withdrawLamports(new BN(amount))
       .accounts({
         authority: primaryWallet.publicKey,
-        proxyWallet,
-        receiver: proxyWallet,
+        proxyWallet: primaryProxyWallet,
+        receiver: receiver.publicKey,
       })
       .signers([primaryWallet])
       .rpc();
 
-    const newReceiverBalance = await connection.getBalance(proxyWallet);
-    const newProxyState = await program.account.proxyWallet.fetch(proxyWallet);
+    const newReceiverBalance = await connection.getBalance(receiver.publicKey);
+    const newProxyState = await program.account.proxyWallet.fetch(
+      primaryProxyWallet
+    );
 
-    assert.equal(newReceiverBalance, initialReceiverBalance);
+    assert.equal(newReceiverBalance - initialReceiverBalance, amount);
     assert.equal(JSON.stringify(newProxyState), JSON.stringify(proxyAccount));
   });
 
@@ -338,29 +425,56 @@ describe("Proxy wallet", () => {
     assert.equal(JSON.stringify(newProxyState), JSON.stringify(proxyAccount));
   });
 
-  it("Withdraw FT to proxy wallet", async () => {
-    const proxyAccount = await program.account.proxyWallet.fetch(proxyWallet);
-    const initialReceiverBalance = await utils.tokenBalance(
-      proxyWalletChillToken
+  it("Try to withdraw FT to itself", async () => {
+    await assert.rejects(
+      async () => {
+        await program.methods
+          .withdrawFt(new BN(chillTokensAmount))
+          .accounts({
+            authority: primaryWallet.publicKey,
+            mint: chillMint,
+            proxyWallet,
+            proxyWalletTokenAccount: proxyWalletChillToken,
+            receiverTokenAccount: proxyWalletChillToken,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([primaryWallet])
+          .rpc();
+      },
+      (err: AnchorError) => {
+        assert.equal(err.error.errorCode.code, "SenderIsRecipient");
+        return true;
+      }
     );
+  });
+
+  it("Withdraw FT from primary proxy wallet", async () => {
+    const proxyAccount = await program.account.proxyWallet.fetch(
+      primaryProxyWallet
+    );
+    const initialReceiverBalance = await utils.tokenBalance(receiverChillToken);
+    const amount = chillTokensAmount / 2;
+    proxyAccount.totalFtWithdrawnUser.iadd(new BN(amount));
 
     await program.methods
-      .withdrawFt(new BN(chillTokensAmount))
+      .withdrawFt(new BN(amount))
       .accounts({
         authority: primaryWallet.publicKey,
         mint: chillMint,
-        proxyWallet,
-        proxyWalletTokenAccount: proxyWalletChillToken,
-        receiverTokenAccount: proxyWalletChillToken,
+        proxyWallet: primaryProxyWallet,
+        proxyWalletTokenAccount: primaryProxyWalletChillToken,
+        receiverTokenAccount: receiverChillToken,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .signers([primaryWallet])
       .rpc();
 
-    const newReceiverBalance = await utils.tokenBalance(proxyWalletChillToken);
-    const newProxyState = await program.account.proxyWallet.fetch(proxyWallet);
+    const newReceiverBalance = await utils.tokenBalance(receiverChillToken);
+    const newProxyState = await program.account.proxyWallet.fetch(
+      primaryProxyWallet
+    );
 
-    assert.equal(initialReceiverBalance, newReceiverBalance);
+    assert.equal(initialReceiverBalance + amount, newReceiverBalance);
     assert.equal(JSON.stringify(newProxyState), JSON.stringify(proxyAccount));
   });
 
@@ -416,26 +530,63 @@ describe("Proxy wallet", () => {
     assert.equal(JSON.stringify(newProxyState), JSON.stringify(proxyAccount));
   });
 
-  it("Withdraw NFT to proxy wallet", async () => {
-    const proxyAccount = await program.account.proxyWallet.fetch(proxyWallet);
-    assert.equal(await utils.tokenBalance(proxyWalletNftToken), 1);
+  it("Try to withdraw NFT to itself", async () => {
+    await assert.rejects(
+      async () => {
+        await program.methods
+          .withdrawNft()
+          .accounts({
+            authority: primaryWallet.publicKey,
+            nftMint,
+            proxyWallet,
+            proxyWalletTokenAccount: proxyWalletNftToken,
+            receiverTokenAccount: proxyWalletNftToken,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([primaryWallet])
+          .rpc();
+      },
+      (err: AnchorError) => {
+        assert.equal(err.error.errorCode.code, "SenderIsRecipient");
+        return true;
+      }
+    );
+  });
+
+  it("Withdraw NFT from primary proxy wallet", async () => {
+    const proxyAccount = await program.account.proxyWallet.fetch(
+      primaryProxyWallet
+    );
+
+    assert.equal(await utils.tokenBalance(receiverNftToken), 0);
+    proxyAccount.totalNftWithdrawnUser.iaddn(1);
 
     await program.methods
       .withdrawNft()
       .accounts({
         authority: primaryWallet.publicKey,
         nftMint,
-        proxyWallet,
-        proxyWalletTokenAccount: proxyWalletNftToken,
-        receiverTokenAccount: proxyWalletNftToken,
+        proxyWallet: primaryProxyWallet,
+        proxyWalletTokenAccount: primaryProxyWalletNftToken,
+        receiverTokenAccount: receiverNftToken,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .signers([primaryWallet])
       .rpc();
 
-    const newProxyState = await program.account.proxyWallet.fetch(proxyWallet);
-    assert.equal(await utils.tokenBalance(proxyWalletNftToken), 1);
+    const newProxyState = await program.account.proxyWallet.fetch(
+      primaryProxyWallet
+    );
+    assert.equal(await utils.tokenBalance(receiverNftToken), 1);
     assert.equal(JSON.stringify(newProxyState), JSON.stringify(proxyAccount));
+
+    // sending NFT to user's proxy wallet
+    await utils.transferTokens(
+      receiver,
+      receiverNftToken,
+      proxyWalletNftToken,
+      1
+    );
   });
 
   it("Withdraw NFT by primary wallet", async () => {

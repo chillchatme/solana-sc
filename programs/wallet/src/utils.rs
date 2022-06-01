@@ -1,6 +1,6 @@
 use crate::{state::ProxyWallet, ErrorCode};
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount};
+use anchor_spl::token::{self, Mint, Token, TokenAccount};
 
 pub fn check_authority(authority: &Signer, proxy_wallet: &Account<ProxyWallet>) -> Result<()> {
     let authority_key = authority.key();
@@ -41,6 +41,10 @@ pub fn check_authority(authority: &Signer, proxy_wallet: &Account<ProxyWallet>) 
     );
 
     Ok(())
+}
+
+pub fn is_nft(mint: &Account<Mint>) -> bool {
+    mint.decimals == 0 && mint.supply == 1
 }
 
 pub fn transfer_tokens<'info>(

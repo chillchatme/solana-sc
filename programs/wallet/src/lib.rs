@@ -34,9 +34,11 @@ pub mod chill_wallet {
         let proxy_wallet_info = ctx.accounts.proxy_wallet.to_account_info();
         let receiver_info = ctx.accounts.receiver.to_account_info();
 
-        if proxy_wallet_info.key() == receiver_info.key() {
-            return Ok(());
-        }
+        require_keys_neq!(
+            proxy_wallet_info.key(),
+            receiver_info.key(),
+            ErrorCode::SenderIsRecipient
+        );
 
         let rent = Rent::get()?;
         let minimum_balance = rent.minimum_balance(ProxyWallet::LEN);
@@ -55,14 +57,14 @@ pub mod chill_wallet {
         **proxy_wallet_info.lamports.borrow_mut() = new_wallet_balance;
 
         let proxy_wallet = &mut ctx.accounts.proxy_wallet;
-        if authority_key == proxy_wallet.primary_wallet {
-            proxy_wallet.total_money_withdrawn_primary_wallet = proxy_wallet
-                .total_money_withdrawn_primary_wallet
+        if authority_key == proxy_wallet.user {
+            proxy_wallet.total_money_withdrawn_user = proxy_wallet
+                .total_money_withdrawn_user
                 .checked_add(amount)
                 .unwrap();
         } else {
-            proxy_wallet.total_money_withdrawn_user = proxy_wallet
-                .total_money_withdrawn_user
+            proxy_wallet.total_money_withdrawn_primary_wallet = proxy_wallet
+                .total_money_withdrawn_primary_wallet
                 .checked_add(amount)
                 .unwrap();
         }
@@ -77,13 +79,18 @@ pub mod chill_wallet {
 
     #[access_control(check_authority(&ctx.accounts.authority, &ctx.accounts.proxy_wallet))]
     pub fn withdraw_ft(ctx: Context<WithdrawFt>, amount: u64) -> Result<()> {
+        let mint = &ctx.accounts.mint;
         let proxy_wallet = &mut ctx.accounts.proxy_wallet;
         let proxy_wallet_token_account = &ctx.accounts.proxy_wallet_token_account;
         let receiver_token_account = &ctx.accounts.receiver_token_account;
 
-        if proxy_wallet_token_account.key() == receiver_token_account.key() {
-            return Ok(());
-        }
+        require!(!utils::is_nft(mint), ErrorCode::TokenIsNft);
+
+        require_keys_neq!(
+            proxy_wallet_token_account.key(),
+            receiver_token_account.key(),
+            ErrorCode::SenderIsRecipient
+        );
 
         transfer_tokens(
             proxy_wallet,
@@ -94,14 +101,14 @@ pub mod chill_wallet {
         )?;
 
         let authority_key = ctx.accounts.authority.key();
-        if authority_key == proxy_wallet.primary_wallet {
-            proxy_wallet.total_ft_withdrawn_primary_wallet = proxy_wallet
-                .total_ft_withdrawn_primary_wallet
+        if authority_key == proxy_wallet.user {
+            proxy_wallet.total_ft_withdrawn_user = proxy_wallet
+                .total_ft_withdrawn_user
                 .checked_add(amount)
                 .unwrap();
         } else {
-            proxy_wallet.total_ft_withdrawn_user = proxy_wallet
-                .total_ft_withdrawn_user
+            proxy_wallet.total_ft_withdrawn_primary_wallet = proxy_wallet
+                .total_ft_withdrawn_primary_wallet
                 .checked_add(amount)
                 .unwrap();
         }
@@ -116,13 +123,18 @@ pub mod chill_wallet {
 
     #[access_control(check_authority(&ctx.accounts.authority, &ctx.accounts.proxy_wallet))]
     pub fn withdraw_nft(ctx: Context<WithdrawNft>) -> Result<()> {
+        let nft_mint = &ctx.accounts.nft_mint;
         let proxy_wallet = &mut ctx.accounts.proxy_wallet;
         let proxy_wallet_token_account = &ctx.accounts.proxy_wallet_token_account;
         let receiver_token_account = &ctx.accounts.receiver_token_account;
 
-        if proxy_wallet_token_account.key() == receiver_token_account.key() {
-            return Ok(());
-        }
+        require!(utils::is_nft(nft_mint), ErrorCode::TokenIsNotNft);
+
+        require_keys_neq!(
+            proxy_wallet_token_account.key(),
+            receiver_token_account.key(),
+            ErrorCode::SenderIsRecipient
+        );
 
         transfer_tokens(
             proxy_wallet,
@@ -133,14 +145,14 @@ pub mod chill_wallet {
         )?;
 
         let authority_key = ctx.accounts.authority.key();
-        if authority_key == proxy_wallet.primary_wallet {
-            proxy_wallet.total_nft_withdrawn_primary_wallet = proxy_wallet
-                .total_nft_withdrawn_primary_wallet
+        if authority_key == proxy_wallet.user {
+            proxy_wallet.total_nft_withdrawn_user = proxy_wallet
+                .total_nft_withdrawn_user
                 .checked_add(1)
                 .unwrap();
         } else {
-            proxy_wallet.total_nft_withdrawn_user = proxy_wallet
-                .total_nft_withdrawn_user
+            proxy_wallet.total_nft_withdrawn_primary_wallet = proxy_wallet
+                .total_nft_withdrawn_primary_wallet
                 .checked_add(1)
                 .unwrap();
         }
@@ -188,7 +200,6 @@ pub struct WithdrawFt<'info> {
     #[account(mut)]
     pub proxy_wallet: Account<'info, ProxyWallet>,
 
-    #[account(constraint = mint.decimals != 0 || mint.supply != 1 @ ErrorCode::TokenIsNft)]
     pub mint: Account<'info, Mint>,
 
     #[account(mut, token::authority = proxy_wallet, token::mint = mint)]
@@ -207,7 +218,6 @@ pub struct WithdrawNft<'info> {
     #[account(mut)]
     pub proxy_wallet: Account<'info, ProxyWallet>,
 
-    #[account(constraint = nft_mint.decimals == 0 && nft_mint.supply == 1 @ ErrorCode::TokenIsNotNft)]
     pub nft_mint: Account<'info, Mint>,
 
     #[account(mut, token::authority = proxy_wallet, token::mint = nft_mint)]
@@ -232,4 +242,7 @@ pub enum ErrorCode {
 
     #[msg("Wrong authority")]
     WrongAuthority,
+
+    #[msg("Sender and recipient are same")]
+    SenderIsRecipient,
 }
