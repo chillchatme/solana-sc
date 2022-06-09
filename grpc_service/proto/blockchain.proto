@@ -1,0 +1,15 @@
+syntax = "proto3";
+package blockchain;
+
+
+service Blockchain {
+  rpc CreateUserAccount (CreateUserAccountReq) returns (CreateUserAccountRes) {}
+}
+
+message CreateUserAccountReq {
+}
+
+message CreateUserAccountRes {
+    string wallet = 1;
+    string signature = 2;
+}

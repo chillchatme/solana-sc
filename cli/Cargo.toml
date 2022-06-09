@@ -3,6 +3,10 @@ name = "chill-cli"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+crate-type = ["lib"]
+name = "chill_cli"
+
 [dependencies]
 anchor-client = "0.24.2"
 anchor-spl = "0.24.2"

@@ -129,6 +129,13 @@ impl<'a> Cli<'a> {
         }
     }
 
+    pub fn init_from(arguments: &[&str]) -> Self {
+        let app = Self::build_app();
+        Self {
+            matches: app.get_matches_from(arguments),
+        }
+    }
+
     fn build_app<'b, 'c>() -> App<'b, 'c> {
         let account_address = "ACCOUNT_ADDRESS";
         let account_address_help = concat!(

@@ -19,6 +19,15 @@ use colored::Colorize;
 use spl_token::native_mint;
 use std::{fs, io::Write, path::Path, process::exit, rc::Rc};
 
+pub enum ProcessedData {
+    Other,
+    Balance(f64),
+    CreateWallet {
+        wallet: Pubkey,
+        signature: Signature
+    },
+}
+
 pub struct App<'cli> {
     cli: Cli<'cli>,
     client: Client,
@@ -27,6 +36,13 @@ pub struct App<'cli> {
 impl App<'_> {
     pub fn init() -> Self {
         let cli = Cli::init();
+        let client = Client::init(&cli.rpc_url());
+
+        App { cli, client }
+    }
+
+    pub fn init_from(arguments: &[&str]) -> Self {
+        let cli = Cli::init_from(arguments);
         let client = Client::init(&cli.rpc_url());
 
         App { cli, client }
@@ -110,11 +126,11 @@ impl App<'_> {
         println!("{} {}", "Signature:".cyan(), signature);
     }
 
-    fn print_balance(&self, address: Pubkey, mint: Pubkey) -> Result<()> {
+    fn print_balance(&self, address: Pubkey, mint: Pubkey) -> Result<ProcessedData> {
         let balance = self.client.ui_token_balance(address, mint)?;
         println!("{} {} tokens", "Balance:".green().bold(), balance);
 
-        Ok(())
+        Ok(ProcessedData::Balance(balance))
     }
 
     fn print_info(&self, mint: Pubkey, program_id: Pubkey) -> Result<()> {
@@ -160,7 +176,7 @@ impl App<'_> {
         Ok(())
     }
 
-    fn process_mint(&self) -> Result<()> {
+    fn process_mint(&self) -> Result<ProcessedData> {
         let primary_wallet = self.cli.primary_wallet()?;
         let payer = self.cli.payer()?;
         let recipient = self.cli.recipient();
@@ -180,10 +196,11 @@ impl App<'_> {
         self.client
             .mint_to(primary_wallet, payer, mint, token_account_pubkey, amount)?;
 
-        self.print_balance(recipient, mint)
+        self.print_balance(recipient, mint)?;
+        Ok(ProcessedData::Other)
     }
 
-    fn process_mint_nft(&self) -> Result<()> {
+    fn process_mint_nft(&self) -> Result<ProcessedData> {
         let payer = self.cli.payer()?;
         let primary_wallet = self.cli.primary_wallet()?;
         let recipient = self.cli.recipient();
@@ -217,10 +234,10 @@ impl App<'_> {
 
         self.print_signature(&signature);
 
-        Ok(())
+        Ok(ProcessedData::Other)
     }
 
-    fn process_update_nft(&self) -> Result<()> {
+    fn process_update_nft(&self) -> Result<ProcessedData> {
         let payer = self.cli.payer()?;
         let primary_wallet = self.cli.primary_wallet()?;
         let nft_mint = self.get_mint()?;
@@ -233,22 +250,23 @@ impl App<'_> {
 
         self.print_signature(&signature);
 
-        Ok(())
+        Ok(ProcessedData::Other)
     }
 
-    fn process_print_info(&self) -> Result<()> {
+    fn process_print_info(&self) -> Result<ProcessedData> {
         let mint = self.get_mint()?;
         let program_id = self.cli.nft_program_id();
-        self.print_info(mint, program_id)
+        self.print_info(mint, program_id)?;
+        Ok(ProcessedData::Other)
     }
 
-    fn process_print_balance(&self) -> Result<()> {
+    fn process_print_balance(&self) -> Result<ProcessedData> {
         let account = self.cli.account();
         let mint = self.get_mint()?;
         self.print_balance(account, mint)
     }
 
-    fn process_transfer(&self) -> Result<()> {
+    fn process_transfer(&self) -> Result<ProcessedData> {
         let primary_wallet = self.cli.primary_wallet()?;
         let payer = self.cli.payer()?;
         let mint = self.get_mint()?;
@@ -278,10 +296,11 @@ impl App<'_> {
                 .transfer_tokens(primary_wallet, payer, mint, recipient, amount)?;
 
         self.print_signature(&signature);
-        self.print_balance(primary_wallet_pubkey, mint)
+        self.print_balance(primary_wallet_pubkey, mint)?;
+        Ok(ProcessedData::Other)
     }
 
-    pub fn process_nft_initialize(&self) -> Result<()> {
+    pub fn process_nft_initialize(&self) -> Result<ProcessedData> {
         let payer = self.cli.payer()?;
         let primary_wallet = self.cli.primary_wallet()?;
         let mint = self.get_mint()?;
@@ -298,10 +317,11 @@ impl App<'_> {
         self.client
             .initialize(primary_wallet, payer, mint, fees, recipients, program_id)?;
 
-        self.print_info(mint, program_id)
+        self.print_info(mint, program_id)?;
+        Ok(ProcessedData::Other)
     }
 
-    pub fn process_create_wallet(&self) -> Result<()> {
+    pub fn process_create_wallet(&self) -> Result<ProcessedData> {
         let payer = self.cli.payer()?;
         let primary_wallet = self.cli.primary_wallet_pubkey();
         let account = self.cli.account();
@@ -309,18 +329,17 @@ impl App<'_> {
 
         let proxy_wallet = pda::proxy_wallet(account, primary_wallet, program_id);
 
-        println!("{} {}", "Wallet:".green(), proxy_wallet);
-
         let signature =
             self.client
                 .create_wallet(payer, account, proxy_wallet, primary_wallet, program_id)?;
 
+        println!("{} {}", "Wallet:".green(), proxy_wallet);
         self.print_signature(&signature);
 
-        Ok(())
+        Ok(ProcessedData::CreateWallet { wallet: proxy_wallet, signature: signature })
     }
 
-    pub fn process_withdraw_lamports(&self) -> Result<()> {
+    pub fn process_withdraw_lamports(&self) -> Result<ProcessedData> {
         let account = self.cli.account();
         let authority = self.cli.authority()?;
         let payer = self.cli.payer()?;
@@ -344,10 +363,10 @@ impl App<'_> {
 
         self.print_signature(&signature);
 
-        Ok(())
+        Ok(ProcessedData::Other)
     }
 
-    pub fn process_withdraw_ft(&self) -> Result<()> {
+    pub fn process_withdraw_ft(&self) -> Result<ProcessedData> {
         let account = self.cli.account();
         let authority = self.cli.authority()?;
         let payer = self.cli.payer()?;
@@ -373,10 +392,10 @@ impl App<'_> {
 
         self.print_signature(&signature);
 
-        Ok(())
+        Ok(ProcessedData::Other)
     }
 
-    pub fn process_withdraw_nft(&self) -> Result<()> {
+    pub fn process_withdraw_nft(&self) -> Result<ProcessedData> {
         let account = self.cli.account();
         let authority = self.cli.authority()?;
         let payer = self.cli.payer()?;
@@ -398,10 +417,10 @@ impl App<'_> {
 
         self.print_signature(&signature);
 
-        Ok(())
+        Ok(ProcessedData::Other)
     }
 
-    pub fn process_staking_initialize(&self) -> Result<()> {
+    pub fn process_staking_initialize(&self) -> Result<ProcessedData> {
         let primary_wallet = self.cli.primary_wallet()?;
         let payer = self.cli.payer()?;
         let mint = self.get_mint()?;
@@ -443,10 +462,10 @@ impl App<'_> {
 
         self.print_signature(&signature);
 
-        Ok(())
+        Ok(ProcessedData::Other)
     }
 
-    pub fn process_staking_add_reward_tokens(&self) -> Result<()> {
+    pub fn process_staking_add_reward_tokens(&self) -> Result<ProcessedData> {
         let primary_wallet = self.cli.primary_wallet()?;
         let payer = self.cli.payer()?;
         let mint = self.get_mint()?;
@@ -469,11 +488,11 @@ impl App<'_> {
 
         self.print_signature(&signature);
 
-        Ok(())
+        Ok(ProcessedData::Other)
     }
 
-    pub fn run(&self) {
-        let result = match self.cli.command() {
+    pub fn run_with_result(&self) -> Result<ProcessedData> {
+        match self.cli.command() {
             CliCommand::Balance => self.process_print_balance(),
             CliCommand::Info => self.process_print_info(),
             CliCommand::Initialize => self.process_nft_initialize(),
@@ -487,7 +506,11 @@ impl App<'_> {
             CliCommand::WithdrawNft => self.process_withdraw_nft(),
             CliCommand::StakingInitialize => self.process_staking_initialize(),
             CliCommand::StakingAddRewardTokens => self.process_staking_add_reward_tokens(),
-        };
+        }
+    }
+
+    pub fn run(&self) {
+        let result = self.run_with_result();
 
         if let Err(error) = result {
             self.on_error(error);
