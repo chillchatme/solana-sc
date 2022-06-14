@@ -3,7 +3,7 @@ use anchor_spl::token::{Mint, Token, TokenAccount};
 use state::ProxyWallet;
 use utils::{check_authority, transfer_tokens};
 
-declare_id!("9HjUbHc9JmSwEa9vkATjJCoaAhJYbkcqXE64CafXDrPt");
+declare_id!("FSo9ozLkvW6HTCJ9XfK4eiBWkLCUcmiQ6F1d2kjtJf2Y");
 
 pub mod event;
 pub mod state;

@@ -17,11 +17,13 @@ use anchor_client::{
 use chill_nft::state::Fees;
 use colored::Colorize;
 use spl_token::native_mint;
-use std::{fs, io::Write, path::Path, process::exit, rc::Rc};
-
+use std::{fs, path::Path, process::exit, rc::Rc};
+use std::fmt::Write as FmtWrite;
+use std::io::Write as IoWrite;
 pub enum ProcessedData {
     Other,
     Balance(f64),
+    Info(String),
     CreateWallet {
         wallet: Pubkey,
         signature: Signature
@@ -133,28 +135,29 @@ impl App<'_> {
         Ok(ProcessedData::Balance(balance))
     }
 
-    fn print_info(&self, mint: Pubkey, program_id: Pubkey) -> Result<()> {
+    fn print_info(&self, mint: Pubkey, program_id: Pubkey) -> Result<ProcessedData> {
         let config = self.client.config(mint, program_id)?;
         let mint_account = self.client.mint_account(mint)?;
 
-        println!(
+        let mut print_string = String::new();
+        writeln!(&mut print_string,
             "{0} {1}",
             "Authority:".green().bold(),
             mint_account.mint_authority.unwrap()
-        );
+        )?;
 
         let fees = config.fees.to_ui(mint_account.decimals);
-        println!("\n{0}", "======= MINT FEES =======".cyan().bold());
-        println!("{0:>10} {1}", "Character:".cyan(), fees.character);
-        println!("{0:>10} {1}", "Pet:".cyan(), fees.pet);
-        println!("{0:>10} {1}", "Emote:".cyan(), fees.emote);
-        println!("{0:>10} {1}", "Tileset:".cyan(), fees.tileset);
-        println!("{0:>10} {1}", "Item:".cyan(), fees.item);
-        println!("{0:>10} {1}", "World:".cyan(), fees.world);
+        writeln!(&mut print_string, "\n{0}", "======= MINT FEES =======".cyan().bold())?;
+        writeln!(&mut print_string, "{0:>10} {1}", "Character:".cyan(), fees.character)?;
+        writeln!(&mut print_string, "{0:>10} {1}", "Pet:".cyan(), fees.pet)?;
+        writeln!(&mut print_string, "{0:>10} {1}", "Emote:".cyan(), fees.emote)?;
+        writeln!(&mut print_string, "{0:>10} {1}", "Tileset:".cyan(), fees.tileset)?;
+        writeln!(&mut print_string, "{0:>10} {1}", "Item:".cyan(), fees.item)?;
+        writeln!(&mut print_string, "{0:>10} {1}", "World:".cyan(), fees.world)?;
 
         let recipients = config.recipients;
         if !recipients.is_empty() {
-            println!("\n{0}", "======= RECIPIENTS =======".bright_blue().bold());
+            writeln!(&mut print_string, "\n{0}", "======= RECIPIENTS =======".bright_blue().bold())?;
             let recipients_info = recipients
                 .iter()
                 .map(|r| {
@@ -170,10 +173,11 @@ impl App<'_> {
                 })
                 .collect::<String>();
 
-            println!("{}", recipients_info.trim());
+            writeln!(&mut print_string, "{}", recipients_info.trim())?;
         }
+        print!("{}", print_string);
 
-        Ok(())
+        Ok(ProcessedData::Info(print_string))
     }
 
     fn process_mint(&self) -> Result<ProcessedData> {
@@ -256,8 +260,7 @@ impl App<'_> {
     fn process_print_info(&self) -> Result<ProcessedData> {
         let mint = self.get_mint()?;
         let program_id = self.cli.nft_program_id();
-        self.print_info(mint, program_id)?;
-        Ok(ProcessedData::Other)
+        self.print_info(mint, program_id)
     }
 
     fn process_print_balance(&self) -> Result<ProcessedData> {

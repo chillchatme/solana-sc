@@ -21,6 +21,12 @@ pub enum AppError {
     AnchorClientError(AnchorClientError),
 }
 
+impl std::convert::From<std::fmt::Error> for AppError {
+    fn from(e: std::fmt::Error) -> Self {
+        AppError::InternalError(anyhow::Error::new(e))
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum CliError {
     #[error("Data cannot be parsed as a mint account")]

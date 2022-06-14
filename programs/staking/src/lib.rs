@@ -12,7 +12,7 @@ pub mod lazy_vector;
 pub mod state;
 pub mod utils;
 
-declare_id!("7EbJfNdsRx1VgHbQgFCZsZZJBm2eDQC3PkKxTSjiabHm");
+declare_id!("7yrE1GFJD9LGvLJCRJkXpfuF5vtaB14KjxyX2Jn4uYE3");
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct InitializeArgs {
