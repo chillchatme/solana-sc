@@ -1,5 +1,5 @@
 [workspace]
-members = ["cli", "grpc_service", "programs/*"]
+members = ["cli", "rest_service", "programs/*"]
 
 [profile.release]
 lto = true

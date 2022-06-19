@@ -1,0 +1,18 @@
+[package]
+name = "platform-service-blockchain"
+version = "0.1.0"
+edition = "2021"
+
+
+[[bin]] # Bin to run the gRPC server
+name = "service-blockchain-server"
+path = "src/server.rs"
+
+
+[dependencies]
+axum = "0.4.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+chill-cli = { path = "../cli" }
+
