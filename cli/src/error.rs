@@ -27,6 +27,12 @@ impl std::convert::From<std::fmt::Error> for AppError {
     }
 }
 
+impl std::convert::From<clap::Error> for AppError {
+    fn from(e: clap::Error) -> Self {
+        AppError::InternalError(anyhow::Error::new(e))
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum CliError {
     #[error("Data cannot be parsed as a mint account")]

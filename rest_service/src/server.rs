@@ -52,8 +52,11 @@ async fn balance(
 
     let args = args.split_whitespace().collect::<Vec<&str>>();
 
-    let app = App::init_from(&args); // todo: fix exit on wrong parameters
-    let processed_data_result = app.run_with_result();
+    let app_init_result = App::init_from_save(&args);
+    if let Err(e) = app_init_result {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response();
+    }
+    let processed_data_result = app_init_result.unwrap().run_with_result();
     match processed_data_result {
         Ok(chill_cli::app::ProcessedData::Balance(balance)) =>
             return (StatusCode::OK, Json(BalanceRes { balance })).into_response(),
@@ -79,8 +82,11 @@ async fn info(
 
     let args = args.split_whitespace().collect::<Vec<&str>>();
 
-    let app = App::init_from(&args);
-    let processed_data_result = app.run_with_result();
+    let app_init_result = App::init_from_save(&args);
+    if let Err(e) = app_init_result {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response();
+    }
+    let processed_data_result = app_init_result.unwrap().run_with_result();
     match processed_data_result {
         Ok(chill_cli::app::ProcessedData::Info(info)) =>
             return (StatusCode::OK, Json(InfoRes { info })).into_response(),
@@ -117,8 +123,11 @@ async fn create_wallet(
 
     let args = args.split_whitespace().collect::<Vec<&str>>();
 
-    let app = App::init_from(&args);
-    let processed_data_result = app.run_with_result();
+    let app_init_result = App::init_from_save(&args);
+    if let Err(e) = app_init_result {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response();
+    }
+    let processed_data_result = app_init_result.unwrap().run_with_result();
     match processed_data_result {
         Ok(chill_cli::app::ProcessedData::CreateWallet{wallet, signature}) =>
             return (StatusCode::OK,

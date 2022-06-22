@@ -43,11 +43,11 @@ impl App<'_> {
         App { cli, client }
     }
 
-    pub fn init_from(arguments: &[&str]) -> Self {
-        let cli = Cli::init_from(arguments);
+    pub fn init_from_save(arguments: &[&str]) -> Result<Self> {
+        let cli = Cli::init_from_save(arguments)?;
         let client = Client::init(&cli.rpc_url());
 
-        App { cli, client }
+        Ok(App { cli, client })
     }
 
     fn on_error(&self, error: AppError) -> ! {

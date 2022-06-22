@@ -71,7 +71,7 @@ pub const PRIMARY_WALLET: &str = "primary-wallet";
 pub const PROGRAM_ID: &str = "program-id";
 const RECIPIENT: &str = "recipient";
 pub const RPC_URL: &str = "url";
-const SAVE_PATH: &str = "save-p`ath";
+const SAVE_PATH: &str = "save-path";
 const STAKING_INFO: &str = "staking-info";
 const START_TIMESTAMP: &str = "start";
 const SYMBOL: &str = "symbol";
@@ -129,11 +129,10 @@ impl<'a> Cli<'a> {
         }
     }
 
-    pub fn init_from(arguments: &[&str]) -> Self {
+    pub fn init_from_save(arguments: &[&str]) -> Result<Self> {
         let app = Self::build_app();
-        Self {
-            matches: app.get_matches_from(arguments),
-        }
+        let matches = app.get_matches_from_safe(arguments)?;
+        Ok(Self { matches, })
     }
 
     fn build_app<'b, 'c>() -> App<'b, 'c> {
