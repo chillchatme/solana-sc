@@ -11,19 +11,41 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::net::SocketAddr;
 
+pub const RESTAPI_PORT_ENV: &str = "RESTAPI_PORT";
+pub const RESTAPI_PORT_DEFAULT: u16 = 3000;
+
+fn get_port() -> u16 {
+    match std::env::var(RESTAPI_PORT_ENV) {
+        Ok(val) => {
+            let parsed_val = val.parse::<u16>();
+            match parsed_val {
+                Ok(port) => {
+                    return port;
+                },
+                Err(parse_e) => {
+                    println!("{RESTAPI_PORT_ENV} parse error {:?}", parse_e);
+                }
+            }
+        },
+        Err(_) => {
+            println!("{RESTAPI_PORT_ENV} wasn't set");
+        },
+    }
+
+    println!("use default port {:?}", RESTAPI_PORT_DEFAULT);
+    RESTAPI_PORT_DEFAULT
+}
+
 #[tokio::main]
 async fn main() {
-    // initialize tracing
-    // tracing_subscriber::fmt::init();
-
     let app = Router::new()
         .route("/", get(root))
         .route("/balance", post(balance))
         .route("/info", post(info))
         .route("/create-wallet", post(create_wallet));
-    
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-    // tracing::debug!("listening on {}", addr);
+
+    let addr = SocketAddr::from(([127, 0, 0, 1], get_port()));
+    println!("listening on {}", addr);
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await
@@ -60,10 +82,10 @@ async fn balance(
     match processed_data_result {
         Ok(chill_cli::app::ProcessedData::Balance(balance)) =>
             return (StatusCode::OK, Json(BalanceRes { balance })).into_response(),
+        Ok(_) =>
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "wrong processed data"}))).into_response(),
         Err(e) => 
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
-        _ => 
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "wrong processed data"}))).into_response(),
     };
 }
 
@@ -90,10 +112,10 @@ async fn info(
     match processed_data_result {
         Ok(chill_cli::app::ProcessedData::Info(info)) =>
             return (StatusCode::OK, Json(InfoRes { info })).into_response(),
+        Ok(_) =>
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "wrong processed data"}))).into_response(),
         Err(e) => 
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
-        _ => 
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "wrong processed data"}))).into_response(),
     };
 
 }
@@ -132,10 +154,10 @@ async fn create_wallet(
         Ok(chill_cli::app::ProcessedData::CreateWallet{wallet, signature}) =>
             return (StatusCode::OK,
                     Json(CreateWalletRes { wallet: wallet.to_string(), signature: signature.to_string()})).into_response(),
+        Ok(_) =>
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "wrong processed data"}))).into_response(),
         Err(e) => 
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
-        _ => 
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "wrong processed data"}))).into_response(),
     };
 }
 
