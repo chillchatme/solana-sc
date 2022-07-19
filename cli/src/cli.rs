@@ -31,9 +31,9 @@ lazy_static! {
     };
 }
 
-const COMMAND_BALANCE: &str = "balance";
-const COMMAND_CREATE_WALLET: &str = "create-wallet";
-const COMMAND_INFO: &str = "info";
+pub const COMMAND_BALANCE: &str = "balance";
+pub const COMMAND_CREATE_WALLET: &str = "create-wallet";
+pub const COMMAND_INFO: &str = "info";
 const COMMAND_INITIALIZE: &str = "initialize";
 const COMMAND_MINT: &str = "mint";
 const COMMAND_MINT_NFT: &str = "mint-nft";
@@ -48,7 +48,7 @@ const COMMAND_ADD_REWARD_TOKENS: &str = "add-reward-tokens";
 const COMMAND_STAKING_INITIALIZE: &str = "staking-initialize";
 const COMMAND_STAKING_ADD_REWARD_TOKENS: &str = "staking-add-reward-tokens";
 
-const ACCOUNT: &str = "account";
+pub const ACCOUNT: &str = "account";
 const AMOUNT: &str = "amount";
 const AUTHORITY: &str = "authority";
 const CREATOR: &str = "creator";
@@ -61,16 +61,16 @@ const FEES_ITEM: &str = "item";
 const FEES_PET: &str = "pet";
 const FEES_TILESET: &str = "tileset";
 const FEES_WORLD: &str = "world";
-const MINT: &str = "mint-address";
+pub const MINT: &str = "mint-address";
 const MINT_SHARE: &str = "mint-share";
 const MIN_STAKE_SIZE: &str = "min-stake-size";
 const NAME: &str = "name";
 const NFT_TYPE: &str = "type";
-const PAYER: &str = "payer";
-const PRIMARY_WALLET: &str = "primary-wallet";
-const PROGRAM_ID: &str = "program-id";
+pub const PAYER: &str = "payer";
+pub const PRIMARY_WALLET: &str = "primary-wallet";
+pub const PROGRAM_ID: &str = "program-id";
 const RECIPIENT: &str = "recipient";
-const RPC_URL: &str = "url";
+pub const RPC_URL: &str = "url";
 const SAVE_PATH: &str = "save-path";
 const STAKING_INFO: &str = "staking-info";
 const START_TIMESTAMP: &str = "start";
@@ -127,6 +127,12 @@ impl<'a> Cli<'a> {
         Self {
             matches: app.get_matches(),
         }
+    }
+
+    pub fn init_from_save(arguments: &[&str]) -> Result<Self> {
+        let app = Self::build_app();
+        let matches = app.get_matches_from_safe(arguments)?;
+        Ok(Self { matches, })
     }
 
     fn build_app<'b, 'c>() -> App<'b, 'c> {

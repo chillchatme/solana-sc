@@ -15,7 +15,7 @@ use utils::{
     NftArgs, TokenBuilder,
 };
 
-declare_id!("E9Zy6VNmQNXj4MiCLjgzJ2png3zfQfosdxRiQ5bornAM");
+declare_id!("4xCEF9AVXzVXpEyG6BGp4MKisnSmKBrNDSyBduTrfoHC");
 
 pub mod event;
 pub mod metaplex_adapter;
