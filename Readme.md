@@ -3,8 +3,9 @@
 ## Installation
 
 Make sure you have installed [Rust
-toolchain](https://www.rust-lang.org/tools/install) and [Solana Tool
-Suite](https://docs.solana.com/cli/install-solana-cli-tools)
+toolchain](https://www.rust-lang.org/tools/install), [Solana Tool
+Suite](https://docs.solana.com/cli/install-solana-cli-tools), and GNU Make
+utility.
 
 Run the command to build CLI and smart constracts:
 
@@ -103,13 +104,13 @@ recipient will be added to a creators list.
 To initialize the Chill smart contract, you should run:
 
 ```bash
-./chill-cli initialize        /
-    --character <FEES>        /
-    --emote <FEES>            /
-    --item <FEES>             /
-    --pet <FEES>              /
-    --tileset <FEES>          /
-    --world <FEES>            /
+./chill-cli initialize        \
+    --character <FEES>        \
+    --emote <FEES>            \
+    --item <FEES>             \
+    --pet <FEES>              \
+    --tileset <FEES>          \
+    --world <FEES>            \
     --recipient <ADDRESS>
 ```
 
@@ -124,14 +125,14 @@ with the corresponded share. The share is percentage number (all mint and
 transaction shares must sum up to 100).
 
 ```bash
-./chill-cli initialize          /
-    --character <FEES>          /
-    ...                         /
-    --recipient <ADDRESS_1>     /
-    --mint-share <SHARE>        /
-    --transaction-share <SHARE> /
-    --recipient <ADDRESS_2>     /
-    --mint-share <SHARE>        /
+./chill-cli initialize          \
+    --character <FEES>          \
+    ...                         \
+    --recipient <ADDRESS_1>     \
+    --mint-share <SHARE>        \
+    --transaction-share <SHARE> \
+    --recipient <ADDRESS_2>     \
+    --mint-share <SHARE>        \
     --transaction-share <SHARE>
 ```
 
@@ -142,6 +143,17 @@ You can mint NFT tokens with this command:
 
 # Example
 ./chill-cli mint-nft pet "Bob the cat" https://arweave.org/hkjc8h3jk2938hk32
+```
+
+You can initialize staking account with this commands:
+
+```bash
+./chill-cli staking initialize     \
+    --start "2023-01-01T00:00:00Z" \
+    --end "2027-12-31T00:00:00Z"   \
+    --min-stake-size 1.500
+
+./chill-cli staking add-reward-tokens 123.456
 ```
 
 For more information, run:

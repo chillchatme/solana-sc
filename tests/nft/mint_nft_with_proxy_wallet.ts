@@ -1,9 +1,11 @@
 import * as assert from "assert";
-import * as utils from "./utils";
+import * as utils from "../utils";
+import * as nftUtils from "./utils";
+import * as walletUtils from "../proxy_wallet/utils";
 import * as anchor from "@project-serum/anchor";
 import { AnchorProvider, BN, Program } from "@project-serum/anchor";
-import { ChillNft } from "../target/types/chill_nft";
-import { ChillWallet } from "../target/types/chill_wallet";
+import { ChillNft } from "../../target/types/chill_nft";
+import { ChillWallet } from "../../target/types/chill_wallet";
 import {
   AccountMeta,
   Connection,
@@ -43,8 +45,8 @@ describe("NFT | Mint with proxy wallet", () => {
   let proxyWalletChill: PublicKey;
   const recipientsTokenAccounts: AccountMeta[] = [];
 
-  const fees = utils.randomFees();
-  const recipients = utils.randomRecipients();
+  const fees = nftUtils.randomFees();
+  const recipients = nftUtils.randomRecipients();
   let config: PublicKey;
 
   before(async () => {
@@ -59,15 +61,14 @@ describe("NFT | Mint with proxy wallet", () => {
     chillMint = chillMintKeypair.publicKey;
 
     instructions.push(
-      await tokenProgram.account.mint.createInstruction(chillMintKeypair),
+      await tokenProgram.account.mint.createInstruction(chillMintKeypair)
     );
 
     instructions.push(
-      await tokenProgram.methods.initializeMint(
-        9,
-        primaryWallet.publicKey,
-        null,
-      ).accounts({ mint: chillMint, rent: SYSVAR_RENT_PUBKEY }).instruction(),
+      await tokenProgram.methods
+        .initializeMint(9, primaryWallet.publicKey, null)
+        .accounts({ mint: chillMint, rent: SYSVAR_RENT_PUBKEY })
+        .instruction()
     );
 
     const primaryWalletChillKeypair = Keypair.generate();
@@ -75,17 +76,20 @@ describe("NFT | Mint with proxy wallet", () => {
 
     instructions.push(
       await tokenProgram.account.token.createInstruction(
-        primaryWalletChillKeypair,
-      ),
+        primaryWalletChillKeypair
+      )
     );
 
     instructions.push(
-      await tokenProgram.methods.initializeAccount().accounts({
-        account: primaryWalletChill,
-        authority: primaryWallet.publicKey,
-        mint: chillMint,
-        rent: SYSVAR_RENT_PUBKEY,
-      }).instruction(),
+      await tokenProgram.methods
+        .initializeAccount()
+        .accounts({
+          account: primaryWalletChill,
+          authority: primaryWallet.publicKey,
+          mint: chillMint,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .instruction()
     );
 
     const transaction = new Transaction();
@@ -100,7 +104,7 @@ describe("NFT | Mint with proxy wallet", () => {
     for (let i = 0; i < recipients.length; i++) {
       const tokenAccount = await utils.createTokenAccount(
         recipients[i].address,
-        chillMint,
+        chillMint
       );
 
       const accountMeta = {
@@ -115,20 +119,23 @@ describe("NFT | Mint with proxy wallet", () => {
 
   it("Create proxy wallet", async () => {
     const instructions: TransactionInstruction[] = [];
-    proxyWallet = await utils.getWalletPubkey(
+    proxyWallet = await walletUtils.getWalletPubkey(
       user.publicKey,
       primaryWallet.publicKey,
-      walletProgram.programId,
+      walletProgram.programId
     );
 
     instructions.push(
-      await walletProgram.methods.createWallet().accounts({
-        primaryWallet: primaryWallet.publicKey,
-        payer: user.publicKey,
-        user: user.publicKey,
-        proxyWallet,
-        systemProgram: SystemProgram.programId,
-      }).instruction(),
+      await walletProgram.methods
+        .createWallet()
+        .accounts({
+          primaryWallet: primaryWallet.publicKey,
+          payer: user.publicKey,
+          user: user.publicKey,
+          proxyWallet,
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction()
     );
 
     instructions.push(
@@ -136,7 +143,7 @@ describe("NFT | Mint with proxy wallet", () => {
         fromPubkey: user.publicKey,
         toPubkey: proxyWallet,
         lamports: 1_000_000_000,
-      }),
+      })
     );
 
     const proxyWalletChillKeypair = Keypair.generate();
@@ -155,21 +162,25 @@ describe("NFT | Mint with proxy wallet", () => {
         space,
         lamports: rentCost,
         programId: tokenProgram.programId,
-      }),
+      })
     );
 
     instructions.push(
-      await tokenProgram.methods.initializeAccount().accounts({
-        account: proxyWalletChill,
-        authority: proxyWallet,
-        mint: chillMint,
-        rent: SYSVAR_RENT_PUBKEY,
-      }).instruction(),
+      await tokenProgram.methods
+        .initializeAccount()
+        .accounts({
+          account: proxyWalletChill,
+          authority: proxyWallet,
+          mint: chillMint,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .instruction()
     );
 
     const transaction = new Transaction();
-    transaction.recentBlockhash =
-      (await connection.getLatestBlockhash()).blockhash;
+    transaction.recentBlockhash = (
+      await connection.getLatestBlockhash()
+    ).blockhash;
     transaction.feePayer = user.publicKey;
     transaction.add(...instructions);
 
@@ -178,7 +189,7 @@ describe("NFT | Mint with proxy wallet", () => {
 
     const serializedTransaction = transaction.serialize();
     const signature = await connection.sendRawTransaction(
-      serializedTransaction,
+      serializedTransaction
     );
 
     // `provider.sendAndConfirm` also uses `wallet` as a fee payer, but we want
@@ -188,28 +199,30 @@ describe("NFT | Mint with proxy wallet", () => {
 
   it("Mint $CHILL tokens to the proxy wallet", async () => {
     const preBalance = await connection.getBalance(primaryWallet.publicKey);
-    let ix = await tokenProgram.methods.mintTo(new BN(initialTokensAmount))
-      .accounts(
-        {
-          authority: primaryWallet.publicKey,
-          mint: chillMint,
-          to: proxyWalletChill,
-        },
-      ).instruction();
+    let ix = await tokenProgram.methods
+      .mintTo(new BN(initialTokensAmount))
+      .accounts({
+        authority: primaryWallet.publicKey,
+        mint: chillMint,
+        to: proxyWalletChill,
+      })
+      .instruction();
 
     const transaction = new Transaction();
     transaction.feePayer = primaryWallet.publicKey;
-    transaction.recentBlockhash =
-      (await connection.getLatestBlockhash()).blockhash;
+    transaction.recentBlockhash = (
+      await connection.getLatestBlockhash()
+    ).blockhash;
 
     transaction.add(ix);
 
     // Calculate fees and withdraw them from the proxy wallet in a signle transaction
-    const feeAmount = (await connection.getFeeForMessage(
-      transaction.compileMessage(),
-    )).value;
+    const feeAmount = (
+      await connection.getFeeForMessage(transaction.compileMessage())
+    ).value;
 
-    ix = await walletProgram.methods.withdrawLamports(new BN(feeAmount))
+    ix = await walletProgram.methods
+      .withdrawLamports(new BN(feeAmount))
       .accounts({
         authority: primaryWallet.publicKey,
         proxyWallet,
@@ -225,13 +238,14 @@ describe("NFT | Mint with proxy wallet", () => {
     assert.equal(preBalance, postBalance);
     assert.equal(
       await utils.tokenBalance(proxyWalletChill),
-      initialTokensAmount,
+      initialTokensAmount
     );
   });
 
   it("Initialize NFT program", async () => {
-    config = await utils.getNftConfigPubkey(chillMint, nftProgram.programId);
-    await nftProgram.methods.initialize(fees, recipients)
+    config = await nftUtils.getNftConfigPubkey(chillMint, nftProgram.programId);
+    await nftProgram.methods
+      .initialize(fees, recipients)
       .accounts({
         primaryWallet: primaryWallet.publicKey,
         payer: primaryWallet.publicKey,
@@ -250,79 +264,80 @@ describe("NFT | Mint with proxy wallet", () => {
     const nftToken = Keypair.generate();
 
     instructions.push(
-      await tokenProgram.account.mint.createInstruction(nftMint),
+      await tokenProgram.account.mint.createInstruction(nftMint)
     );
 
     instructions.push(
-      await tokenProgram.methods.initializeMint(
-        0,
-        primaryWallet.publicKey,
-        null,
-      ).accounts({ mint: nftMint.publicKey, rent: SYSVAR_RENT_PUBKEY })
-        .instruction(),
+      await tokenProgram.methods
+        .initializeMint(0, primaryWallet.publicKey, null)
+        .accounts({ mint: nftMint.publicKey, rent: SYSVAR_RENT_PUBKEY })
+        .instruction()
     );
 
     instructions.push(
-      await tokenProgram.account.token.createInstruction(
-        nftToken,
-      ),
+      await tokenProgram.account.token.createInstruction(nftToken)
     );
 
     instructions.push(
-      await tokenProgram.methods.initializeAccount().accounts({
-        account: nftToken.publicKey,
-        authority: user.publicKey,
-        mint: nftMint.publicKey,
-        rent: SYSVAR_RENT_PUBKEY,
-      }).instruction(),
+      await tokenProgram.methods
+        .initializeAccount()
+        .accounts({
+          account: nftToken.publicKey,
+          authority: user.publicKey,
+          mint: nftMint.publicKey,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .instruction()
     );
 
     instructions.push(
-      await tokenProgram.methods.mintTo(new BN(1)).accounts({
-        authority: primaryWallet.publicKey,
-        mint: nftMint.publicKey,
-        to: nftToken.publicKey,
-      }).instruction(),
+      await tokenProgram.methods
+        .mintTo(new BN(1))
+        .accounts({
+          authority: primaryWallet.publicKey,
+          mint: nftMint.publicKey,
+          to: nftToken.publicKey,
+        })
+        .instruction()
     );
 
     const transaction = new Transaction();
     transaction.add(...instructions);
 
-    let simulationResult = await provider.simulate(
-      transaction,
-      null,
-      null,
-      [primaryWallet.publicKey],
-    );
+    let simulationResult = await provider.simulate(transaction, null, null, [
+      primaryWallet.publicKey,
+    ]);
 
     let simulatedBalance = simulationResult.accounts[0].lamports;
     let withdrawAmount = preBalance - simulatedBalance;
 
-    let withdrawIx = await walletProgram.methods.withdrawLamports(
-      new BN(withdrawAmount),
-    ).accounts({
-      authority: primaryWallet.publicKey,
-      proxyWallet,
-      receiver: primaryWallet.publicKey,
-    }).instruction();
+    let withdrawIx = await walletProgram.methods
+      .withdrawLamports(new BN(withdrawAmount))
+      .accounts({
+        authority: primaryWallet.publicKey,
+        proxyWallet,
+        receiver: primaryWallet.publicKey,
+      })
+      .instruction();
 
     transaction.add(withdrawIx);
     await provider.sendAndConfirm(transaction, [nftMint, nftToken]);
 
     assert.equal(
       await connection.getBalance(primaryWallet.publicKey),
-      preBalance,
+      preBalance
     );
 
     //
     // WithdrawFt
     //
 
-    const nftType = utils.randomNftType();
-    const nftArgs = utils.randomNftArgs();
+    const nftType = nftUtils.randomNftType();
+    const nftArgs = nftUtils.randomNftArgs();
 
-    const chillAmount = utils.feesOf(fees, nftType);
-    const withdrawFtIx = await walletProgram.methods.withdrawFt(chillAmount)
+    const chillAmount = nftUtils.feesOf(fees, nftType);
+    const withdrawFtIx = await walletProgram.methods
+      .withdrawFt(chillAmount)
       .accounts({
         authority: primaryWallet.publicKey,
         receiverTokenAccount: primaryWalletChill,
@@ -330,7 +345,8 @@ describe("NFT | Mint with proxy wallet", () => {
         proxyWallet,
         proxyWalletTokenAccount: proxyWalletChill,
         tokenProgram: tokenProgram.programId,
-      }).instruction();
+      })
+      .instruction();
 
     const withdrawTransaction = new Transaction();
     withdrawTransaction.add(withdrawFtIx);
@@ -339,32 +355,32 @@ describe("NFT | Mint with proxy wallet", () => {
       withdrawTransaction,
       null,
       null,
-      [primaryWallet.publicKey],
+      [primaryWallet.publicKey]
     );
 
     simulatedBalance = simulationResult.accounts[0].lamports;
     withdrawAmount = preBalance - simulatedBalance;
 
-    withdrawIx = await walletProgram.methods.withdrawLamports(
-      new BN(withdrawAmount),
-    )
+    withdrawIx = await walletProgram.methods
+      .withdrawLamports(new BN(withdrawAmount))
       .accounts({
         authority: primaryWallet.publicKey,
         proxyWallet,
         receiver: primaryWallet.publicKey,
-      }).instruction();
+      })
+      .instruction();
 
     withdrawTransaction.add(withdrawIx);
     await provider.sendAndConfirm(withdrawTransaction);
 
     assert.equal(
       chillAmount.toNumber(),
-      await utils.tokenBalance(primaryWalletChill),
+      await utils.tokenBalance(primaryWalletChill)
     );
 
     assert.equal(
       preBalance,
-      await connection.getBalance(primaryWallet.publicKey),
+      await connection.getBalance(primaryWallet.publicKey)
     );
 
     //
@@ -374,18 +390,15 @@ describe("NFT | Mint with proxy wallet", () => {
     const Metadata = programs.metadata;
     const nftMetadata = await Metadata.Metadata.getPDA(nftMint.publicKey);
     const nftMasterEdition = await Metadata.MasterEdition.getPDA(
-      nftMint.publicKey,
+      nftMint.publicKey
     );
-    const nftChillMetadata = await utils.getChillMetadataPubkey(
+    const nftChillMetadata = await nftUtils.getChillMetadataPubkey(
       nftMint.publicKey,
-      nftProgram.programId,
+      nftProgram.programId
     );
 
-    const mintNftIx = await nftProgram.methods.mintNft(
-      nftType,
-      nftArgs,
-      user.publicKey,
-    )
+    const mintNftIx = await nftProgram.methods
+      .mintNft(nftType, nftArgs, user.publicKey)
       .accounts({
         primaryWallet: primaryWallet.publicKey,
         payer: primaryWallet.publicKey,
@@ -401,7 +414,9 @@ describe("NFT | Mint with proxy wallet", () => {
         systemProgram: SystemProgram.programId,
         tokenProgram: tokenProgram.programId,
         tokenMetadataProgram: Metadata.MetadataProgram.PUBKEY,
-      }).remainingAccounts(recipientsTokenAccounts).instruction();
+      })
+      .remainingAccounts(recipientsTokenAccounts)
+      .instruction();
 
     const mintNftTransaction = new Transaction();
     mintNftTransaction.add(mintNftIx);
@@ -413,14 +428,14 @@ describe("NFT | Mint with proxy wallet", () => {
     simulatedBalance = simulationResult.accounts[0].lamports;
     withdrawAmount = preBalance - simulatedBalance;
 
-    withdrawIx = await walletProgram.methods.withdrawLamports(
-      new BN(withdrawAmount),
-    )
+    withdrawIx = await walletProgram.methods
+      .withdrawLamports(new BN(withdrawAmount))
       .accounts({
         authority: primaryWallet.publicKey,
         proxyWallet,
         receiver: primaryWallet.publicKey,
-      }).instruction();
+      })
+      .instruction();
 
     mintNftTransaction.add(withdrawIx);
     await provider.sendAndConfirm(mintNftTransaction);
@@ -430,7 +445,7 @@ describe("NFT | Mint with proxy wallet", () => {
     // The balance of the primary wallet has not changed
     assert.equal(
       preBalance,
-      await connection.getBalance(primaryWallet.publicKey),
+      await connection.getBalance(primaryWallet.publicKey)
     );
 
     const metadata = await Metadata.Metadata.load(connection, nftMetadata);

@@ -1,6 +1,7 @@
 [programs.localnet]
 chill_nft = "E9Zy6VNmQNXj4MiCLjgzJ2png3zfQfosdxRiQ5bornAM"
 chill_wallet = "9HjUbHc9JmSwEa9vkATjJCoaAhJYbkcqXE64CafXDrPt"
+chill_staking = "7EbJfNdsRx1VgHbQgFCZsZZJBm2eDQC3PkKxTSjiabHm"
 
 [registry]
 url = "https://anchor.projectserum.com"
@@ -11,6 +12,9 @@ wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+
+[test]
+startup_wait = 10000
 
 [test.validator]
 url = "https://api.mainnet-beta.solana.com"

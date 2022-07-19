@@ -271,4 +271,7 @@ pub enum ErrorCode {
 
     #[msg("Sum of all recipient shares must equal 100")]
     InvalidShares,
+
+    #[msg("Provided owner is not allowed")]
+    IllegalOwner,
 }

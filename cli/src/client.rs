@@ -20,11 +20,13 @@ use anchor_client::{
     },
     Client as AnchorClient, Cluster, Program,
 };
+use anchor_spl::associated_token;
 use chill_nft::{
     self,
     state::{ChillNftMetadata, Config, Fees, NftType, Recipient, AUTHORITY_SHARE},
     utils::NftArgs,
 };
+use chill_staking::{state::StakingInfo, InitializeArgs as StakingInitializeArgs};
 use mpl_token_metadata::{
     state::{Creator, DataV2, Key, Metadata, TokenStandard, MAX_METADATA_LEN},
     utils::try_from_slice_checked,
@@ -130,8 +132,8 @@ impl Client {
             .map_err(|_| CliError::AccountIsNotMetadata.into())
     }
 
-    pub fn config(&self, mint: Pubkey) -> Result<Config> {
-        let config_pubkey = pda::config(mint);
+    pub fn config(&self, mint: Pubkey, program_id: Pubkey) -> Result<Config> {
+        let config_pubkey = pda::config(mint, program_id);
 
         let config_data = self
             .rpc_client
@@ -142,8 +144,8 @@ impl Client {
             .map_err(|_| CliError::ConfigDataError.into())
     }
 
-    pub fn chill_metadata(&self, nft_mint: Pubkey) -> Result<ChillNftMetadata> {
-        let chill_metadata_pubkey = pda::chill_metadata(nft_mint);
+    pub fn chill_metadata(&self, nft_mint: Pubkey, program_id: Pubkey) -> Result<ChillNftMetadata> {
+        let chill_metadata_pubkey = pda::chill_metadata(nft_mint, program_id);
         let chill_metadata_data = self
             .rpc_client
             .get_account_data(&chill_metadata_pubkey)
@@ -439,9 +441,10 @@ impl Client {
         chill_mint: Pubkey,
         fees: Fees,
         recipients: Vec<Recipient>,
+        program_id: Pubkey,
     ) -> Result<Signature> {
-        let program = self.program(payer.clone(), chill_nft::ID)?;
-        let config = pda::config(chill_mint);
+        let program = self.program(payer.clone(), program_id)?;
+        let config = pda::config(chill_mint, program_id);
 
         program
             .request()
@@ -467,8 +470,9 @@ impl Client {
         nft_mint: Pubkey,
         nft_type: NftType,
         args: NftArgs,
+        program_id: Pubkey,
     ) -> Result<Signature> {
-        let config = self.config(chill_mint)?;
+        let config = self.config(chill_mint, program_id)?;
         let mut recipients_token_accounts = Vec::with_capacity(config.recipients.len());
         for recipient in config.recipients {
             match self.find_token_address(recipient.address, chill_mint)? {
@@ -493,12 +497,12 @@ impl Client {
             };
         }
 
-        let program = self.program(payer.clone(), chill_nft::ID)?;
-        let config_pubkey = pda::config(chill_mint);
+        let program = self.program(payer.clone(), program_id)?;
+        let config_pubkey = pda::config(chill_mint, program_id);
 
         let nft_metadata = pda::metadata(nft_mint);
         let nft_master_edition = pda::master_edition(nft_mint);
-        let nft_chill_metadata = pda::chill_metadata(nft_mint);
+        let nft_chill_metadata = pda::chill_metadata(nft_mint, program_id);
 
         let primary_wallet_token = self
             .find_token_address(primary_wallet.pubkey(), chill_mint)?
@@ -539,8 +543,9 @@ impl Client {
         primary_wallet: Rc<dyn Signer>,
         nft_mint: Pubkey,
         args: NftArgs,
+        program_id: Pubkey,
     ) -> Result<Signature> {
-        let program = self.program(payer.clone(), chill_nft::ID)?;
+        let program = self.program(payer.clone(), program_id)?;
         let nft_metadata = pda::metadata(nft_mint);
 
         program
@@ -562,8 +567,9 @@ impl Client {
         account: Pubkey,
         proxy_wallet: Pubkey,
         primary_wallet: Pubkey,
+        program_id: Pubkey,
     ) -> Result<Signature> {
-        let program = self.program(payer.clone(), chill_wallet::ID)?;
+        let program = self.program(payer.clone(), program_id)?;
 
         program
             .request()
@@ -586,8 +592,9 @@ impl Client {
         proxy_wallet: Pubkey,
         recipient: Pubkey,
         amount: u64,
+        program_id: Pubkey,
     ) -> Result<Signature> {
-        let program = self.program(payer.clone(), chill_wallet::ID)?;
+        let program = self.program(payer.clone(), program_id)?;
 
         program
             .request()
@@ -602,6 +609,7 @@ impl Client {
             .map_err(Into::into)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn withdraw_ft(
         &self,
         payer: Rc<dyn Signer>,
@@ -610,8 +618,9 @@ impl Client {
         recipient: Pubkey,
         mint: Pubkey,
         amount: u64,
+        program_id: Pubkey,
     ) -> Result<Signature> {
-        let program = self.program(payer.clone(), chill_wallet::ID)?;
+        let program = self.program(payer.clone(), program_id)?;
 
         let proxy_wallet_token_account = self
             .find_token_address(proxy_wallet, mint)?
@@ -642,8 +651,9 @@ impl Client {
         proxy_wallet: Pubkey,
         recipient: Pubkey,
         nft_mint: Pubkey,
+        program_id: Pubkey,
     ) -> Result<Signature> {
-        let program = self.program(payer.clone(), chill_wallet::ID)?;
+        let program = self.program(payer.clone(), program_id)?;
 
         let proxy_wallet_token_account = self
             .find_token_address(proxy_wallet, nft_mint)?
@@ -664,6 +674,90 @@ impl Client {
                 token_program: spl_token::ID,
             })
             .signer(authority.as_ref())
+            .send()
+            .map_err(Into::into)
+    }
+
+    pub fn staking_initialize(
+        &self,
+        staking_info: &Keypair,
+        primary_wallet: Rc<dyn Signer>,
+        payer: Rc<dyn Signer>,
+        mint: Pubkey,
+        args: StakingInitializeArgs,
+        program_id: Pubkey,
+    ) -> Result<Signature> {
+        let program = self.program(payer.clone(), program_id)?;
+
+        let staking_token_authority =
+            pda::staking_token_authority(staking_info.pubkey(), program_id);
+        let staking_token_account = get_associated_token_address(&staking_token_authority, &mint);
+
+        let space = StakingInfo::LEN + args.total_days() * 8;
+        let lamports = self
+            .rpc_client
+            .get_minimum_balance_for_rent_exemption(space)?;
+
+        let ix = system_instruction::create_account(
+            &payer.pubkey(),
+            &staking_info.pubkey(),
+            lamports,
+            space.try_into().unwrap(),
+            &program_id,
+        );
+
+        program
+            .request()
+            .args(chill_staking::instruction::Initialize { args })
+            .accounts(chill_staking::accounts::Initialize {
+                primary_wallet: primary_wallet.pubkey(),
+                payer: payer.pubkey(),
+                staking_info: staking_info.pubkey(),
+                staking_token_authority,
+                staking_token_account,
+                mint,
+                system_program: system_program::ID,
+                rent: Rent::id(),
+                token_program: spl_token::ID,
+                associated_token_program: associated_token::ID,
+            })
+            .instruction(ix)
+            .signer(primary_wallet.as_ref())
+            .signer(staking_info)
+            .send()
+            .map_err(Into::into)
+    }
+
+    pub fn staking_add_token_reward(
+        &self,
+        primary_wallet: Rc<dyn Signer>,
+        payer: Rc<dyn Signer>,
+        staking_info: Pubkey,
+        mint: Pubkey,
+        amount: u64,
+        program_id: Pubkey,
+    ) -> Result<Signature> {
+        let program = self.program(payer.clone(), program_id)?;
+        let primary_wallet_token_account = self
+            .find_token_address(primary_wallet.pubkey(), mint)?
+            .ok_or_else(|| CliError::TokenAccountNotFound(primary_wallet.pubkey()))?;
+
+        let staking_token_authority = pda::staking_token_authority(staking_info, program_id);
+        let staking_token_account = get_associated_token_address(&staking_token_authority, &mint);
+
+        program
+            .request()
+            .args(chill_staking::instruction::AddRewardTokens { amount })
+            .accounts(chill_staking::accounts::AddRewardTokens {
+                primary_wallet: primary_wallet.pubkey(),
+                token_account_authority: primary_wallet.pubkey(),
+                token_account: primary_wallet_token_account,
+                staking_info,
+                staking_token_authority,
+                staking_token_account,
+                token_program: spl_token::ID,
+            })
+            .signer(primary_wallet.as_ref())
             .send()
             .map_err(Into::into)
     }
